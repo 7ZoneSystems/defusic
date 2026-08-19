@@ -12,15 +12,23 @@ interface TimelineProps {
 const LANE_HEIGHT = 28;
 const LANES = [
   { key: 'beat', label: 'BEAT', color: 'var(--beat-color)' },
+  { key: 'bass', label: 'BASS', color: 'var(--text-muted)' },
   { key: 'bass_beat', label: 'BASS+BEAT', color: 'var(--bass-beat-color)' },
   { key: 'bass_offbeat', label: 'OFFBEAT', color: 'var(--bass-offbeat-color)' },
   { key: 'bass_accent', label: 'ACCENT', color: 'var(--bass-accent-color)' },
+  { key: 'bass_activity', label: 'BASS ACTIVITY', color: '#6A8ECE' },
 ];
 
 export default function Timeline({ result, currentTime, onSeek }: TimelineProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [hoverTime, setHoverTime] = useState<number | null>(null);
+  const [hoverEvent, setHoverEvent] = useState<{
+    type: string;
+    time: number;
+    strength: number;
+    delta?: number | null;
+  } | null>(null);
   const [zoom, setZoom] = useState(1);
   const [scrollX, setScrollX] = useState(0);
 
@@ -28,11 +36,8 @@ export default function Timeline({ result, currentTime, onSeek }: TimelineProps)
   const events = result.events;
 
   const getEventLane = (type: string) => {
-    if (type === 'beat') return 0;
-    if (type === 'bass_beat') return 1;
-    if (type === 'bass_offbeat') return 2;
-    if (type === 'bass_accent') return 3;
-    return -1;
+    const idx = LANES.findIndex((l) => l.key === type);
+    return idx >= 0 ? idx : -1;
   };
 
   const timeToX = useCallback(
@@ -116,14 +121,25 @@ export default function Timeline({ result, currentTime, onSeek }: TimelineProps)
     for (const event of events) {
       const lane = getEventLane(event.type);
       if (lane < 0) continue;
+
       const x = timeToX(event.time, w);
       if (x < -2 || x > w + 2) continue;
+
       const y = headerH + lane * LANE_HEIGHT;
       const barH = 4 + event.strength * (LANE_HEIGHT - 8);
 
       ctx.globalAlpha = 0.3 + 0.7 * event.strength;
       ctx.fillStyle = LANES[lane].color;
-      ctx.fillRect(x - 1, y + (LANE_HEIGHT - barH) / 2, 2, barH);
+
+      // Draw activity events as wider bars
+      if (event.type === 'bass_activity' && event.duration && event.duration > 0) {
+        const endX = timeToX(event.time + event.duration, w);
+        const barW = Math.max(2, endX - x);
+        ctx.fillRect(x, y + (LANE_HEIGHT - barH) / 2, barW, barH);
+      } else {
+        ctx.fillRect(x - 1, y + (LANE_HEIGHT - barH) / 2, 2, barH);
+      }
+
       ctx.globalAlpha = 1;
     }
 
@@ -155,10 +171,40 @@ export default function Timeline({ result, currentTime, onSeek }: TimelineProps)
         ctx.moveTo(hx, 0);
         ctx.lineTo(hx, totalH);
         ctx.stroke();
-        ctx.fillStyle = '#9AA2AC';
-        ctx.font = '9px var(--font-geist-mono), monospace';
-        ctx.textAlign = 'center';
-        ctx.fillText(`${hoverTime.toFixed(3)}s`, hx, headerH + LANES.length * LANE_HEIGHT + 16);
+
+        // Find nearest event for tooltip
+        let nearestEvent = null;
+        let nearestDist = Infinity;
+        for (const event of events) {
+          const ex = timeToX(event.time, w);
+          const dist = Math.abs(ex - hx);
+          if (dist < 10 && dist < nearestDist) {
+            nearestDist = dist;
+            nearestEvent = event;
+          }
+        }
+
+        if (nearestEvent) {
+          const tooltipX = Math.min(hx + 8, w - 120);
+          const tooltipY = headerH + LANES.length * LANE_HEIGHT + 4;
+          ctx.fillStyle = '#171B20';
+          ctx.fillRect(tooltipX, tooltipY, 116, 40);
+          ctx.strokeStyle = '#262C33';
+          ctx.strokeRect(tooltipX, tooltipY, 116, 40);
+          ctx.fillStyle = '#E7E9EC';
+          ctx.font = '9px var(--font-geist-mono), monospace';
+          ctx.textAlign = 'left';
+          ctx.fillText(`${nearestEvent.type}`, tooltipX + 4, tooltipY + 12);
+          ctx.fillText(`t=${nearestEvent.time.toFixed(3)}s str=${nearestEvent.strength.toFixed(2)}`, tooltipX + 4, tooltipY + 24);
+          if (nearestEvent.beat_delta_seconds != null) {
+            ctx.fillText(`delta=${nearestEvent.beat_delta_seconds >= 0 ? '+' : ''}${nearestEvent.beat_delta_seconds.toFixed(4)}s`, tooltipX + 4, tooltipY + 36);
+          }
+        } else {
+          ctx.fillStyle = '#9AA2AC';
+          ctx.font = '9px var(--font-geist-mono), monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText(`${hoverTime.toFixed(3)}s`, hx, headerH + LANES.length * LANE_HEIGHT + 16);
+        }
       }
     }
   }, [result, currentTime, hoverTime, zoom, scrollX, timeToX, duration, events]);
@@ -231,7 +277,7 @@ export default function Timeline({ result, currentTime, onSeek }: TimelineProps)
           className="absolute inset-0 cursor-crosshair"
           onClick={handleClick}
           onMouseMove={handleMouseMove}
-          onMouseLeave={() => setHoverTime(null)}
+          onMouseLeave={() => { setHoverTime(null); setHoverEvent(null); }}
         />
       </div>
       <div className="px-3 py-1.5 flex items-center gap-2" style={{ borderTop: '1px solid var(--border)' }}>

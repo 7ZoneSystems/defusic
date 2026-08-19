@@ -19,6 +19,7 @@ class EventType(str, Enum):
     BASS_BEAT = "bass_beat"
     BASS_OFFBEAT = "bass_offbeat"
     BASS_ACCENT = "bass_accent"
+    BASS_ACTIVITY = "bass_activity"
 
 
 class DrumEventType(str, Enum):
@@ -55,6 +56,7 @@ class AnalysisEvent(BaseModel):
     type: str
     strength: float = Field(ge=0.0, le=1.0, description="Normalized 0.0-1.0")
     raw_rms: Optional[float] = Field(default=None, description="Raw RMS energy if available")
+    normalized_energy: Optional[float] = Field(default=None, description="Energy relative to track peak")
     beat_delta_seconds: Optional[float] = Field(
         default=None,
         description="Time difference to nearest beat (negative = before beat)",
@@ -69,6 +71,8 @@ class BassEventDetail(BaseModel):
     strength: float
     raw_rms: float
     duration: float
+    normalized_energy: Optional[float] = None
+    event_kind: Optional[str] = None
     onset_strength: Optional[float] = None
     spectral_flux: Optional[float] = None
 
@@ -102,3 +106,46 @@ class AnalysisJob(BaseModel):
     mode: str = "music"
     result: Optional[AnalysisResult] = None
     error: Optional[str] = None
+
+
+# --- Haptic models ---
+
+
+class HapticEventModel(BaseModel):
+    """A single haptic event in the timeline."""
+
+    time: float = Field(description="Timestamp in seconds")
+    type: str = Field(description="Event type that triggered this haptic")
+    intensity: float = Field(ge=0.0, le=1.0, description="Normalized haptic intensity 0.0-1.0")
+    duration_ms: int = Field(ge=1, description="Haptic pulse duration in milliseconds")
+    is_anticipation: bool = Field(default=False, description="Whether this is an anticipation cue")
+
+
+class HapticTimelineModel(BaseModel):
+    """Complete haptic timeline generated from analysis events."""
+
+    version: str = "0.1"
+    duration_seconds: float = 0.0
+    config_used: str = "drummer_default"
+    events: list[HapticEventModel] = Field(default_factory=list)
+
+
+class HapticConfigUpdate(BaseModel):
+    """User-provided haptic configuration overrides."""
+
+    preset: Optional[str] = None
+    beat_intensity: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    beat_duration_ms: Optional[int] = Field(default=None, ge=1)
+    hihat_intensity: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    hihat_duration_ms: Optional[int] = Field(default=None, ge=1)
+    kick_intensity: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    kick_duration_ms: Optional[int] = Field(default=None, ge=1)
+    snare_intensity: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    snare_duration_ms: Optional[int] = Field(default=None, ge=1)
+    bass_intensity: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    bass_duration_ms: Optional[int] = Field(default=None, ge=1)
+    subbass_intensity: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    subbass_duration_ms: Optional[int] = Field(default=None, ge=1)
+    anticipation_enabled: Optional[bool] = None
+    minimum_gap_ms: Optional[int] = Field(default=None, ge=0)
+    master_intensity: Optional[float] = Field(default=None, ge=0.0, le=1.0)

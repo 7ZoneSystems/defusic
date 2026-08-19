@@ -20,4 +20,12 @@ API_HOST = os.getenv("API_HOST", "0.0.0.0")
 API_PORT = int(os.getenv("API_PORT", "8000"))
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "100"))
 
+# Bass analysis frequency bands (Hz)
+SUBBASS_MAX_HZ = int(os.getenv("SUBBASS_MAX_HZ", "80"))
+BASS_MAX_HZ = int(os.getenv("BASS_MAX_HZ", "250"))
+
+# Bass activity detection
+BASS_ACTIVITY_MIN_DURATION = float(os.getenv("BASS_ACTIVITY_MIN_DURATION", "0.3"))
+BASS_ACTIVITY_ENERGY_THRESHOLD = float(os.getenv("BASS_ACTIVITY_ENERGY_THRESHOLD", "0.3"))
+
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

@@ -2,19 +2,20 @@
 
 import { useState, useMemo } from 'react';
 import { Filter } from 'lucide-react';
-import { AnalysisEvent, EventType } from '@/lib/types';
+import { AnalysisEvent } from '@/lib/types';
 
 interface EventInspectorProps {
   events: AnalysisEvent[];
 }
 
-const FILTERS: { label: string; value: EventType | 'all' }[] = [
+const FILTERS: { label: string; value: string }[] = [
   { label: 'All', value: 'all' },
   { label: 'Beat', value: 'beat' },
   { label: 'Bass', value: 'bass' },
   { label: 'Bass+Beat', value: 'bass_beat' },
   { label: 'Offbeat', value: 'bass_offbeat' },
   { label: 'Accent', value: 'bass_accent' },
+  { label: 'Activity', value: 'bass_activity' },
 ];
 
 const TYPE_COLORS: Record<string, string> = {
@@ -23,10 +24,11 @@ const TYPE_COLORS: Record<string, string> = {
   bass_beat: 'var(--bass-beat-color)',
   bass_offbeat: 'var(--bass-offbeat-color)',
   bass_accent: 'var(--bass-accent-color)',
+  bass_activity: '#6A8ECE',
 };
 
 export default function EventInspector({ events }: EventInspectorProps) {
-  const [filter, setFilter] = useState<EventType | 'all'>('all');
+  const [filter, setFilter] = useState<string>('all');
   const [page, setPage] = useState(0);
   const perPage = 50;
 
@@ -75,7 +77,7 @@ export default function EventInspector({ events }: EventInspectorProps) {
         <table className="w-full text-xs" style={{ fontFamily: 'var(--font-geist-mono)' }}>
           <thead>
             <tr style={{ borderBottom: '1px solid var(--border)' }}>
-              {['TIME', 'TYPE', 'STRENGTH', 'NEAREST BEAT', 'DELTA', 'DURATION'].map((h) => (
+              {['TIME', 'TYPE', 'STRENGTH', 'ENERGY', 'NEAREST BEAT', 'DELTA', 'DURATION'].map((h) => (
                 <th
                   key={h}
                   className="px-3 py-1.5 text-left font-medium"
@@ -109,6 +111,9 @@ export default function EventInspector({ events }: EventInspectorProps) {
                 </td>
                 <td className="px-3 py-1.5" style={{ color: 'var(--text-secondary)' }}>
                   {event.strength.toFixed(3)}
+                </td>
+                <td className="px-3 py-1.5" style={{ color: 'var(--text-muted)' }}>
+                  {event.normalized_energy != null ? event.normalized_energy.toFixed(3) : '-'}
                 </td>
                 <td className="px-3 py-1.5" style={{ color: 'var(--text-muted)' }}>
                   {event.nearest_beat_time != null ? event.nearest_beat_time.toFixed(3) : '-'}

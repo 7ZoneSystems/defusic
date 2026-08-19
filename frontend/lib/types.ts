@@ -1,7 +1,7 @@
 export type AnalysisMode = 'music' | 'drumming';
 
 export type EventType =
-  | 'beat' | 'bass' | 'bass_beat' | 'bass_offbeat' | 'bass_accent'
+  | 'beat' | 'bass' | 'bass_beat' | 'bass_offbeat' | 'bass_accent' | 'bass_activity'
   | 'kick' | 'snare' | 'hihat' | 'drum_onset' | 'cymbal' | 'percussion';
 
 export interface SourceInfo {
@@ -22,6 +22,7 @@ export interface AnalysisEvent {
   type: EventType;
   strength: number;
   raw_rms?: number | null;
+  normalized_energy?: number | null;
   beat_delta_seconds?: number | null;
   nearest_beat_time?: number | null;
   duration?: number | null;
@@ -33,6 +34,8 @@ export interface BassEventDetail {
   strength: number;
   raw_rms: number;
   duration: number;
+  normalized_energy?: number | null;
+  event_kind?: string | null;
   onset_strength?: number | null;
   spectral_flux?: number | null;
 }
