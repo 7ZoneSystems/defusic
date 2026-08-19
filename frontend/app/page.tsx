@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { AlertTriangle, FileAudio } from 'lucide-react';
 import Header from '@/components/Header';
 import TrackUpload from '@/components/TrackUpload';
@@ -16,9 +16,13 @@ import DiagnosticPlayer from '@/components/DiagnosticPlayer';
 import DualWaveform from '@/components/DualWaveform';
 import DrumPatternView from '@/components/DrumPatternView';
 import AnalysisProgress from '@/components/AnalysisProgress';
-import { analyzeFile, checkHealth, getJsonDownloadUrl, getWaveformData } from '@/lib/api';
+import HapticPanel from '@/components/HapticPanel';
+import { analyzeFile, checkHealth, getHapticTimeline, getJsonDownloadUrl, getWaveformData } from '@/lib/api';
 import { AnalysisResult, AnalysisMode, AppState, DiagnosticLayer, WaveformData } from '@/lib/types';
 import { DRUM_LAYERS, MUSIC_LAYERS } from '@/lib/types';
+import { HapticConfig, HapticEvent, HapticTimeline, DEFAULT_HAPTIC_CONFIG } from '@/lib/haptic-types';
+import { HapticController } from '@/lib/haptic-controller';
+import { createHapticDriver } from '@/lib/haptic-driver';
 
 export default function Home() {
   const [state, setState] = useState<AppState>('idle');
@@ -38,13 +42,100 @@ export default function Home() {
   const [originalWaveform, setOriginalWaveform] = useState<WaveformData | null>(null);
   const [diagnosticWaveform, setDiagnosticWaveform] = useState<number[] | null>(null);
 
-  // Load waveform data when analysis completes
+  // Haptic state
+  const [hapticConfig, setHapticConfig] = useState<HapticConfig>(DEFAULT_HAPTIC_CONFIG);
+  const [hapticTimeline, setHapticTimeline] = useState<HapticTimeline | null>(null);
+  const [hapticLastEvent, setHapticLastEvent] = useState<HapticEvent | null>(null);
+  const hapticControllerRef = useRef<HapticController | null>(null);
+  const hapticDriverRef = useRef<ReturnType<typeof createHapticDriver> | null>(null);
+
+  // Initialize haptic driver once
+  useEffect(() => {
+    const driver = createHapticDriver();
+    hapticDriverRef.current = driver;
+    const ctrl = new HapticController(driver, {
+      onEvent: (evt) => setHapticLastEvent(evt),
+    });
+    hapticControllerRef.current = ctrl;
+    return () => ctrl.destroy();
+  }, []);
+
+  // Sync haptic enabled state with config
+  useEffect(() => {
+    const ctrl = hapticControllerRef.current;
+    if (ctrl) {
+      ctrl.setEnabled(hapticConfig.master_intensity > 0);
+    }
+  }, [hapticConfig.master_intensity]);
+
+  // Sync haptic timeline when it changes
+  useEffect(() => {
+    const ctrl = hapticControllerRef.current;
+    if (ctrl && hapticTimeline) {
+      ctrl.load(hapticTimeline);
+      if (hapticConfig.master_intensity > 0) {
+        ctrl.play();
+      }
+    }
+  }, [hapticTimeline, hapticConfig.master_intensity]);
+
+  // Sync haptic seek with currentTime
+  const lastSeekRef = useRef(0);
+  useEffect(() => {
+    const ctrl = hapticControllerRef.current;
+    if (!ctrl || !hapticTimeline) return;
+    const now = Date.now();
+    // Only seek haptics if there was a significant jump (>200ms) or explicit seek
+    const delta = Math.abs(currentTime - lastSeekRef.current);
+    if (delta > 0.3 || (delta > 0.05 && now - lastSeekRef.current < 100)) {
+      ctrl.seek(currentTime);
+    }
+    lastSeekRef.current = currentTime;
+  }, [currentTime, hapticTimeline]);
+
+  // Load haptic timeline when analysis completes
   useEffect(() => {
     if (state !== 'complete' || !jobId) return;
+
+    // Load waveform
     getWaveformData(jobId, 2000)
       .then(setOriginalWaveform)
       .catch(() => setOriginalWaveform(null));
+
+    // Load haptic timeline
+    getHapticTimeline(jobId)
+      .then(setHapticTimeline)
+      .catch(() => setHapticTimeline(null));
   }, [state, jobId]);
+
+  // Reload haptic timeline when config changes
+  useEffect(() => {
+    if (state !== 'complete' || !jobId) return;
+
+    const timer = setTimeout(() => {
+      getHapticTimeline(jobId, {
+        preset: 'custom',
+        master_intensity: hapticConfig.master_intensity,
+        beat_intensity: hapticConfig.beat.intensity,
+        beat_duration_ms: hapticConfig.beat.duration_ms,
+        hihat_intensity: hapticConfig.hihat.intensity,
+        hihat_duration_ms: hapticConfig.hihat.duration_ms,
+        kick_intensity: hapticConfig.kick.intensity,
+        kick_duration_ms: hapticConfig.kick.duration_ms,
+        snare_intensity: hapticConfig.snare.intensity,
+        snare_duration_ms: hapticConfig.snare.duration_ms,
+        bass_intensity: hapticConfig.bass.intensity,
+        bass_duration_ms: hapticConfig.bass.duration_ms,
+        subbass_intensity: hapticConfig.subbass.intensity,
+        subbass_duration_ms: hapticConfig.subbass.duration_ms,
+        anticipation_enabled: hapticConfig.anticipation_enabled,
+      })
+        .then(setHapticTimeline)
+        .catch(() => {});
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [hapticConfig, state, jobId]);
 
   const handleFileSelected = useCallback(async (file: File) => {
     setSelectedFile(file);
@@ -97,6 +188,8 @@ export default function Home() {
     setCurrentTime(0);
     setOriginalWaveform(null);
     setDiagnosticWaveform(null);
+    setHapticTimeline(null);
+    hapticControllerRef.current?.stop();
   }, []);
 
   const handleLayerToggle = useCallback((layerId: string) => {
@@ -106,6 +199,7 @@ export default function Home() {
   }, []);
 
   const isDrumming = result?.mode === 'drumming';
+  const realHardware = hapticDriverRef.current?.isReal ?? false;
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg-primary)' }}>
@@ -248,6 +342,11 @@ export default function Home() {
                 </span>
               </div>
               <div className="flex items-center gap-2">
+                {hapticTimeline && (
+                  <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                    {hapticTimeline.events.length} haptic events
+                  </span>
+                )}
                 {result.warnings.length > 0 && (
                   <span className="text-xs" style={{ color: 'var(--warning)' }}>
                     {result.warnings.length} warning{result.warnings.length > 1 ? 's' : ''}
@@ -348,6 +447,15 @@ export default function Home() {
                   onTimeUpdate={setCurrentTime}
                 />
               )}
+
+              {/* Haptic Panel */}
+              <HapticPanel
+                controller={hapticControllerRef.current}
+                realHardware={realHardware}
+                lastEvent={hapticLastEvent}
+                config={hapticConfig}
+                onConfigChange={setHapticConfig}
+              />
 
               {/* Drum pattern view (drumming mode) */}
               {isDrumming && result.drum_events_raw.length > 0 && (

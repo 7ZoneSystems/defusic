@@ -14,15 +14,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from hearbeat.config import API_HOST, API_PORT, MAX_UPLOAD_MB, OUTPUT_DIR
-from hearbeat.models import AnalysisJob, AnalysisResult
+from hearbeat.haptic_config import HapticConfig, get_preset, list_presets
+from hearbeat.haptic_mapper import HapticMapper
+from hearbeat.models import AnalysisJob, AnalysisResult, HapticConfigUpdate, HapticTimelineModel
 from hearbeat.pipeline import analyze_file
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Hearbeat API",
-    description="Stage 2: Music Enjoyment + Drumming Analysis Engine",
-    version="0.2.0",
+    description="Stage 3: Music Enjoyment + Drumming + Haptic Translation Engine",
+    version="0.3.0",
 )
 
 app.add_middleware(
@@ -46,7 +48,7 @@ ALLOWED_EXTENSIONS = {
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok", "version": "0.2.0"}
+    return {"status": "ok", "version": "0.3.0"}
 
 
 @app.post("/analyze")
@@ -289,6 +291,84 @@ def get_click_track(job_id: str, multi: bool = False) -> FileResponse:
     wav_path = OUTPUT_DIR / wav_name
     save_wav(audio, wav_path, sr)
     return FileResponse(wav_path, media_type="audio/wav", filename=wav_name)
+
+
+# --- Haptic endpoints ---
+
+
+@app.get("/presets")
+def get_presets() -> JSONResponse:
+    """List available haptic presets."""
+    return JSONResponse(content={"presets": list_presets()})
+
+
+@app.post("/analysis/{job_id}/haptic")
+def generate_haptic_timeline(
+    job_id: str,
+    config_update: HapticConfigUpdate | None = None,
+) -> JSONResponse:
+    """Generate a haptic timeline from an analysis result.
+
+    Accepts optional haptic configuration overrides.
+    """
+    job = _jobs.get(job_id)
+    if not job:
+        raise HTTPException(404, f"Job not found: {job_id}")
+    if job.status != "completed" or not job.result:
+        raise HTTPException(400, "Analysis not completed yet")
+
+    result = job.result
+
+    # Build config from preset + overrides
+    if config_update and config_update.preset:
+        haptic_config = get_preset(config_update.preset)
+        preset_name = config_update.preset
+    else:
+        haptic_config = HapticConfig()
+        preset_name = "drummer_default"
+
+    # Apply overrides
+    if config_update:
+        _apply_config_overrides(haptic_config, config_update)
+
+    mapper = HapticMapper(config=haptic_config, preset_name=preset_name)
+    timeline = mapper.map_events(result.events, result.source.duration_seconds)
+
+    return JSONResponse(content=timeline.to_dict())
+
+
+def _apply_config_overrides(config: HapticConfig, update: HapticConfigUpdate) -> None:
+    """Apply user overrides to haptic config."""
+    if update.beat_intensity is not None:
+        config.beat.intensity = update.beat_intensity
+    if update.beat_duration_ms is not None:
+        config.beat.duration_ms = update.beat_duration_ms
+    if update.hihat_intensity is not None:
+        config.hihat.intensity = update.hihat_intensity
+    if update.hihat_duration_ms is not None:
+        config.hihat.duration_ms = update.hihat_duration_ms
+    if update.kick_intensity is not None:
+        config.kick.intensity = update.kick_intensity
+    if update.kick_duration_ms is not None:
+        config.kick.duration_ms = update.kick_duration_ms
+    if update.snare_intensity is not None:
+        config.snare.intensity = update.snare_intensity
+    if update.snare_duration_ms is not None:
+        config.snare.duration_ms = update.snare_duration_ms
+    if update.bass_intensity is not None:
+        config.bass.intensity = update.bass_intensity
+    if update.bass_duration_ms is not None:
+        config.bass.duration_ms = update.bass_duration_ms
+    if update.subbass_intensity is not None:
+        config.subbass.intensity = update.subbass_intensity
+    if update.subbass_duration_ms is not None:
+        config.subbass.duration_ms = update.subbass_duration_ms
+    if update.anticipation_enabled is not None:
+        config.anticipation.enabled = update.anticipation_enabled
+    if update.minimum_gap_ms is not None:
+        config.minimum_gap_ms = update.minimum_gap_ms
+    if update.master_intensity is not None:
+        config.master_intensity = update.master_intensity
 
 
 def run_server() -> None:

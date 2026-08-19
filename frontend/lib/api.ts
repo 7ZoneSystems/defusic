@@ -1,4 +1,5 @@
 import { AnalysisJob, AnalysisMode, WaveformData } from './types';
+import { HapticTimeline } from './haptic-types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -53,5 +54,24 @@ export async function getWaveformData(
 ): Promise<WaveformData> {
   const res = await fetch(`${API_URL}/analysis/${jobId}/waveform?resolution=${resolution}`);
   if (!res.ok) throw new Error('Failed to fetch waveform data');
+  return res.json();
+}
+
+export async function getHapticTimeline(
+  jobId: string,
+  configUpdate?: Record<string, unknown>
+): Promise<HapticTimeline> {
+  const res = await fetch(`${API_URL}/analysis/${jobId}/haptic`, {
+    method: 'POST',
+    headers: configUpdate ? { 'Content-Type': 'application/json' } : undefined,
+    body: configUpdate ? JSON.stringify(configUpdate) : undefined,
+  });
+  if (!res.ok) throw new Error('Failed to generate haptic timeline');
+  return res.json();
+}
+
+export async function getPresets(): Promise<{ presets: string[] }> {
+  const res = await fetch(`${API_URL}/presets`);
+  if (!res.ok) throw new Error('Failed to fetch presets');
   return res.json();
 }
