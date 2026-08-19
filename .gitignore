@@ -13,10 +13,10 @@ build/
 dist/
 *.egg-info/
 
-# Environment (root level only)
-/.env
-/.env.local
-/.env.*.local
+# Environment
+.env
+.env.local
+.env.*.local
 
 # Outputs
 outputs/
@@ -36,3 +36,24 @@ Thumbs.db
 tmp/
 temp/
 *.tmp
+
+# Auto-generated agent files
+AGENTS.md
+CLAUDE.md
+
+# Frontend misc
+.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+*.pem
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.vercel
+*.tsbuildinfo
+next-env.d.ts

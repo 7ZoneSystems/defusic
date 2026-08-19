@@ -66,6 +66,8 @@ class BassStemExtractor:
                 self._separator._callback_arg = None
                 self._separator._model = model
                 self._separator._stem_sources = None
+                self._separator._samplerate = model.samplerate
+                self._separator._audio_channels = model.audio_channels
             else:
                 logger.info(
                     "Local model not found at %s, loading from cache/hub: %s",

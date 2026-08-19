@@ -30,11 +30,8 @@ export default function PlaybackControls({
 
   useEffect(() => {
     const audio = audioRef.current;
-    if (!audio) return;
-    if (audioSrc) {
-      audio.src = audioSrc;
-      audio.load();
-    }
+    if (!audio || !audioSrc) return;
+    audio.src = audioSrc;
   }, [audioSrc]);
 
   useEffect(() => {
@@ -51,6 +48,7 @@ export default function PlaybackControls({
     if (playing) {
       audio.pause();
     } else {
+      audio.load();
       audio.play();
     }
     setPlaying(!playing);
