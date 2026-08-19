@@ -122,7 +122,7 @@ class DrumAnalyzer:
     def _detect_kicks(
         self, drums: np.ndarray, beats: np.ndarray
     ) -> list[dict]:
-        """Run the dedicated kick detector."""
+        """Run the multi-expert kick detector."""
         from hearbeat.kick_detector import KickDetector
 
         detector = KickDetector(sr=self.sr)

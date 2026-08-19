@@ -293,6 +293,55 @@ def get_click_track(job_id: str, multi: bool = False) -> FileResponse:
     return FileResponse(wav_path, media_type="audio/wav", filename=wav_name)
 
 
+@app.get("/analysis/{job_id}/filtered")
+def get_filtered_audio(
+    job_id: str,
+    band: str = Query("bass", description="Filter band: bass, subbass, lowmid, kick"),
+) -> FileResponse:
+    """Export filtered WAV for diagnostic listening.
+
+    Development-only endpoint for debugging filter bank analysis.
+    Bands: bass, subbass, lowmid, kick.
+    """
+    from hearbeat.filter_bank import FilterBank, DEFAULT_BANDS
+    from hearbeat.config import FILTER_ORDER, KICK_LOW_HZ, KICK_HIGH_HZ
+    import soundfile as sf
+
+    job = _jobs.get(job_id)
+    if not job:
+        raise HTTPException(404, f"Job not found: {job_id}")
+    if job.status != "completed" or not job.result:
+        raise HTTPException(400, "Analysis not completed yet")
+
+    audio_path = _upload_files.get(job_id)
+    if not audio_path or not audio_path.exists():
+        raise HTTPException(404, "Original audio not available")
+
+    audio, sr = sf.read(str(audio_path), dtype="float32")
+    if audio.ndim > 1:
+        audio = audio.mean(axis=1)
+
+    # Build filter bank with requested band
+    band_ranges = {
+        "bass": (60.0, 150.0),
+        "subbass": (20.0, 60.0),
+        "lowmid": (150.0, 250.0),
+        "kick": (KICK_LOW_HZ, KICK_HIGH_HZ),
+    }
+    if band not in band_ranges:
+        raise HTTPException(400, f"Unknown band: {band}. Use: {list(band_ranges.keys())}")
+
+    fb = FilterBank(sr=sr, bands={band: band_ranges[band]}, order=FILTER_ORDER)
+    filtered = fb.filter_band(audio, band, causal=False)
+
+    stem = Path(job.filename).stem
+    wav_name = f"{stem}_{band}_filtered.wav"
+    wav_path = OUTPUT_DIR / wav_name
+    sf.write(str(wav_path), filtered, sr, subtype="FLOAT")
+
+    return FileResponse(wav_path, media_type="audio/wav", filename=wav_name)
+
+
 # --- Haptic endpoints ---
 
 

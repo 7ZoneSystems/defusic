@@ -1,4 +1,8 @@
-"""Application configuration."""
+"""Application configuration.
+
+All filter bank, expert fusion, and detection parameters are centralized here.
+Do not scatter constants across modules.
+"""
 
 import os
 from pathlib import Path
@@ -21,8 +25,6 @@ API_PORT = int(os.getenv("API_PORT", "8000"))
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "100"))
 
 # --- Filter bank configuration ---
-# All values are engineering starting points, not universal truths.
-
 FILTER_ORDER = int(os.getenv("FILTER_ORDER", "4"))
 STFT_N_FFT = int(os.getenv("STFT_N_FFT", "2048"))
 HOP_LENGTH = int(os.getenv("HOP_LENGTH", "512"))
@@ -39,19 +41,26 @@ LOWMID_HIGH_HZ = float(os.getenv("LOWMID_HIGH_HZ", "250"))
 KICK_LOW_HZ = float(os.getenv("KICK_LOW_HZ", "25"))
 KICK_HIGH_HZ = float(os.getenv("KICK_HIGH_HZ", "180"))
 
-# Bass activity detection
+# Bass activity detection (hysteresis)
 BASS_ACTIVITY_MIN_DURATION = float(os.getenv("BASS_ACTIVITY_MIN_DURATION", "0.3"))
 BASS_ACTIVITY_THRESHOLD = float(os.getenv("BASS_ACTIVITY_THRESHOLD", "0.25"))
-BASS_ONSET_DELTA = float(os.getenv("BASS_ONSET_DELTA", "0.07"))
+BASS_ACTIVITY_DEACTIVATION_RATIO = float(os.getenv("BASS_ACTIVITY_DEACTIVATION_RATIO", "0.6"))
+BASS_ONSET_DELTA = float(os.getenv("BASS_ONSET_DELTA", "0.05"))
 BASS_MIN_EVENT_GAP = float(os.getenv("BASS_MIN_EVENT_GAP", "0.05"))
 
 # Kick classification
-KICK_ONSET_THRESHOLD = float(os.getenv("KICK_ONSET_THRESHOLD", "0.07"))
+KICK_ONSET_THRESHOLD = float(os.getenv("KICK_ONSET_THRESHOLD", "0.05"))
 KICK_MIN_EVENT_GAP = float(os.getenv("KICK_MIN_EVENT_GAP", "0.08"))
 KICK_CONFIDENCE_THRESHOLD = float(os.getenv("KICK_CONFIDENCE_THRESHOLD", "0.5"))
 KICK_CONFIDENCE_MARGIN = float(os.getenv("KICK_CONFIDENCE_MARGIN", "0.15"))
 
-# Bass analysis frequency bands (legacy aliases)
+# Multi-expert fusion
+FUSION_CLUSTER_TOLERANCE_MS = float(os.getenv("FUSION_CLUSTER_TOLERANCE_MS", "25"))
+FUSION_MIN_EVENT_GAP_MS = float(os.getenv("FUSION_MIN_EVENT_GAP_MS", "50"))
+FUSION_NORMALIZE_PERCENTILE = float(os.getenv("FUSION_NORMALIZE_PERCENTILE", "95"))
+FUSION_MIN_FUSED_SCORE = float(os.getenv("FUSION_MIN_FUSED_SCORE", "0.03"))
+
+# Legacy aliases
 SUBBASS_MAX_HZ = SUBBASS_HIGH_HZ
 BASS_MAX_HZ = BASS_HIGH_HZ
 
