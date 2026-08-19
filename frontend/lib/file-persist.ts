@@ -26,14 +26,18 @@ function openDB(): Promise<IDBDatabase | null> {
     }
     try {
       const req = indexedDB.open(DB_NAME, DB_VERSION);
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (!settled) { settled = true; resolve(null); }
+      }, 2000);
       req.onupgradeneeded = () => {
         const db = req.result;
         if (!db.objectStoreNames.contains(STORE_NAME)) {
           db.createObjectStore(STORE_NAME);
         }
       };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => resolve(null);
+      req.onsuccess = () => { if (!settled) { settled = true; clearTimeout(timer); resolve(req.result); } };
+      req.onerror = () => { if (!settled) { settled = true; clearTimeout(timer); resolve(null); } };
     } catch {
       resolve(null);
     }
@@ -65,8 +69,10 @@ export async function persistFile(file: File): Promise<boolean> {
       // Store the file blob under a separate key
       store.put(file, 'file_blob');
 
-      tx.oncomplete = () => resolve(true);
-      tx.onerror = () => resolve(false);
+      let settled = false;
+      const timer = setTimeout(() => { if (!settled) { settled = true; resolve(false); } }, 2000);
+      tx.oncomplete = () => { if (!settled) { settled = true; clearTimeout(timer); resolve(true); } };
+      tx.onerror = () => { if (!settled) { settled = true; clearTimeout(timer); resolve(false); } };
     } catch {
       resolve(false);
     }
@@ -85,8 +91,10 @@ export async function getPersistedMeta(): Promise<PersistedFileMeta | null> {
       const tx = db.transaction(STORE_NAME, 'readonly');
       const store = tx.objectStore(STORE_NAME);
       const req = store.get(META_KEY);
-      req.onsuccess = () => resolve(req.result ?? null);
-      req.onerror = () => resolve(null);
+      let settled = false;
+      const timer = setTimeout(() => { if (!settled) { settled = true; resolve(null); } }, 2000);
+      req.onsuccess = () => { if (!settled) { settled = true; clearTimeout(timer); resolve(req.result ?? null); } };
+      req.onerror = () => { if (!settled) { settled = true; clearTimeout(timer); resolve(null); } };
     } catch {
       resolve(null);
     }
@@ -105,18 +113,22 @@ export async function getPersistedBlob(): Promise<File | null> {
       const tx = db.transaction(STORE_NAME, 'readonly');
       const store = tx.objectStore(STORE_NAME);
       const req = store.get('file_blob');
+      let settled = false;
+      const timer = setTimeout(() => { if (!settled) { settled = true; resolve(null); } }, 2000);
       req.onsuccess = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
         const result = req.result;
         if (result instanceof File) {
           resolve(result);
         } else if (result instanceof Blob) {
-          // Reconstruct as File if browser returned a plain Blob
           resolve(new File([result], 'unknown', { type: result.type }));
         } else {
           resolve(null);
         }
       };
-      req.onerror = () => resolve(null);
+      req.onerror = () => { if (!settled) { settled = true; clearTimeout(timer); resolve(null); } };
     } catch {
       resolve(null);
     }
@@ -136,8 +148,10 @@ export async function clearPersistedFile(): Promise<void> {
       const store = tx.objectStore(STORE_NAME);
       store.delete(META_KEY);
       store.delete('file_blob');
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => resolve();
+      let settled = false;
+      const timer = setTimeout(() => { if (!settled) { settled = true; resolve(); } }, 2000);
+      tx.oncomplete = () => { if (!settled) { settled = true; clearTimeout(timer); resolve(); } };
+      tx.onerror = () => { if (!settled) { settled = true; clearTimeout(timer); resolve(); } };
     } catch {
       resolve();
     }

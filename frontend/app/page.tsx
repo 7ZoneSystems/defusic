@@ -200,8 +200,8 @@ export default function Home() {
   }, [hapticConfig, state, jobId]);
 
   const handleFileSelected = useCallback(async (file: File) => {
-    // Persist to IndexedDB so file survives reload
-    await persistFile(file);
+    // Persist to IndexedDB in the background — do NOT await, it may hang
+    persistFile(file).catch(() => {});
 
     setSelectedFile(file);
     setSelectedMeta({
@@ -250,7 +250,7 @@ export default function Home() {
     }
   }, [selectedFile, mode]);
 
-  const handleReset = useCallback(async () => {
+  const handleReset = useCallback(() => {
     setState('idle');
     setResult(null);
     setJobId('');
@@ -262,7 +262,7 @@ export default function Home() {
     setDiagnosticWaveform(null);
     setHapticTimeline(null);
     hapticController?.stop();
-    await clearPersistedFile();
+    clearPersistedFile().catch(() => {});
   }, [hapticController]);
 
   const handleLayerToggle = useCallback((layerId: string) => {
