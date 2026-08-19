@@ -23,15 +23,16 @@ Next.js Frontend
 FastAPI Backend (localhost:8000)
     |
     +-- FFmpeg         Audio extraction & normalization
-    +-- Essentia       Beat detection (RhythmExtractor2013)
-    +-- Demucs         Bass source separation (htdemucs)
+    +-- Essentia       Beat detection (RhythmExtractor2013) + Onset detection (HFC)
+    +-- Demucs         Source separation (bass, drums, vocals, other)
     +-- NumPy/SciPy    Signal processing (RMS, onset, spectral flux)
+    +-- SoundFile      WAV I/O
     |
     v
-JSON Analysis Result
+JSON Analysis Result (v0.1 music / v0.2 drumming)
     |
     v
-Browser renders timeline, events, metrics
+Browser renders timeline, events, metrics, waveforms
 ```
 
 ## Backend Startup
@@ -61,7 +62,7 @@ The backend will be available at `http://localhost:8000`.
 cd backend
 source .venv/bin/activate
 
-# Analyze a track
+# Analyze a track (music mode)
 python analyze.py ../test_audio/song.mp3
 
 # Analyze with verbose output
@@ -131,32 +132,68 @@ npm start
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/health` | Health check |
-| `POST` | `/analyze` | Upload and analyze a media file |
+| `POST` | `/analyze?mode=music` | Upload and analyze (music mode) |
+| `POST` | `/analyze?mode=drumming` | Upload and analyze (drumming mode) |
 | `GET` | `/analysis/{job_id}` | Get analysis result |
 | `GET` | `/analysis/{job_id}/json` | Download raw JSON |
+| `GET` | `/analysis/{job_id}/audio` | Serve original uploaded audio |
+| `GET` | `/analysis/{job_id}/diagnostic?layers=all` | Generate diagnostic audio |
+| `GET` | `/analysis/{job_id}/waveform?resolution=2000` | Get downsampled waveform data |
 | `GET` | `/analysis/{job_id}/click-track` | Download beat click WAV |
 | `GET` | `/analysis/{job_id}/click-track?multi=true` | Download multi-layer WAV |
 | `GET` | `/visualize/{job_id}` | HTML debug visualization |
 
+## Analysis Modes
+
+### Music Enjoyment (v0.1)
+
+Stage 1 pipeline unchanged:
+
+1. Audio extraction via FFmpeg
+2. Beat detection via Essentia RhythmExtractor2013
+3. Source separation via Demucs (bass stem)
+4. Bass event detection (RMS + onset strength)
+5. Event fusion (beat/bass relationships)
+6. Diagnostic audio generation
+
+Events: `beat`, `bass`, `bass_beat`, `bass_offbeat`, `bass_accent`
+
+### Drumming (v0.2)
+
+New drum-focused pipeline:
+
+1. Audio extraction via FFmpeg
+2. Beat detection via Essentia RhythmExtractor2013
+3. Source separation via Demucs (all stems: bass, drums, vocals, other)
+4. Drum onset detection via Essentia OnsetDetection (HFC)
+5. Spectral feature extraction (centroid, bandwidth, band energies)
+6. Event classification (kick, snare, hihat, drum_onset)
+7. Beat alignment (nearest beat, delta, position)
+8. Diagnostic audio generation (synthetic sounds)
+
+Events: `beat`, `kick`, `snare`, `hihat`, `drum_onset`, `bass`
+
 ## File Flow
 
 1. User uploads MP3/MP4 via frontend
-2. Frontend sends file to `POST /analyze`
+2. Frontend sends file to `POST /analyze?mode=music|drumming`
 3. Backend saves upload to temp directory
 4. FFmpeg extracts audio to normalized WAV (44.1kHz, mono, float32)
 5. Essentia detects beats (BPM, timestamps, confidence)
-6. Demucs separates bass stem
-7. Signal processing detects bass events (RMS, onset strength)
-8. Event fusion computes beat/bass relationships
+6. Demucs separates all stems (bass, drums, vocals, other)
+7. Mode-specific analysis runs (bass events or drum onset detection)
+8. Event fusion computes temporal relationships
 9. JSON result returned to frontend
-10. Frontend renders timeline, metrics, events
+10. Frontend renders timeline, metrics, events, waveforms
 
 ### Temporary Files
 
 - Uploaded files: system temp directory (deleted after analysis)
 - Normalized WAV: system temp directory (deleted after analysis)
+- Original audio: `backend/outputs/{filename}` (kept for playback)
 - Output JSON: `backend/outputs/{filename}.json`
 - Click track WAVs: `backend/outputs/{filename}_clicks.wav`
+- Diagnostic WAVs: `backend/outputs/{filename}_diagnostic_*.wav`
 
 ## Model Requirements
 
@@ -181,7 +218,7 @@ This downloads models to `backend/models/` for offline use. No network access re
 
 ### Essentia
 
-- **Algorithm**: RhythmExtractor2013 (multifeature method)
+- **Algorithms**: RhythmExtractor2013 (multifeature), OnsetDetection (HFC)
 - **License**: AGPL-3.0
 - **No model download required**
 

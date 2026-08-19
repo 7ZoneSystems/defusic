@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useMemo } from 'react';
 import { Play, Pause, SkipBack } from 'lucide-react';
-import { getClickTrackUrl } from '@/lib/api';
+import { getClickTrackUrl, getOriginalAudioUrl } from '@/lib/api';
 
 interface PlaybackControlsProps {
   jobId: string;
@@ -23,10 +23,10 @@ export default function PlaybackControls({
   const [playing, setPlaying] = useState(false);
   const [mode, setMode] = useState<TrackMode>('beats');
 
-  const audioSrc = useMemo(
-    () => (mode === 'original' ? '' : getClickTrackUrl(jobId, mode === 'multi')),
-    [jobId, mode]
-  );
+  const audioSrc = useMemo(() => {
+    if (mode === 'original') return getOriginalAudioUrl(jobId);
+    return getClickTrackUrl(jobId, mode === 'multi');
+  }, [jobId, mode]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -126,11 +126,10 @@ export default function PlaybackControls({
         </button>
         <button
           onClick={togglePlay}
-          disabled={!audioSrc}
-          className="p-1.5 disabled:opacity-30"
+          className="p-1.5"
           style={{
             color: 'var(--text-primary)',
-            background: audioSrc ? 'var(--accent-dim)' : 'var(--border)',
+            background: 'var(--accent-dim)',
             borderRadius: '2px',
           }}
           aria-label={playing ? 'Pause' : 'Play'}

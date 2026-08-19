@@ -2,13 +2,15 @@
 
 import { Activity } from 'lucide-react';
 import { ReactNode } from 'react';
+import { AnalysisMode } from '@/lib/types';
 
 interface HeaderProps {
   status?: 'online' | 'offline' | 'analyzing';
+  mode?: AnalysisMode | null;
   children?: ReactNode;
 }
 
-export default function Header({ status = 'online', children }: HeaderProps) {
+export default function Header({ status = 'online', mode, children }: HeaderProps) {
   return (
     <header
       className="glass-panel flex items-center justify-between px-6 py-3"
@@ -31,6 +33,19 @@ export default function Header({ status = 'online', children }: HeaderProps) {
       </div>
       <div className="flex items-center gap-4">
         {children}
+        {mode && (
+          <span
+            className="text-xs uppercase tracking-wider px-2 py-0.5"
+            style={{
+              color: mode === 'drumming' ? 'var(--hihat-color)' : 'var(--accent)',
+              fontFamily: 'var(--font-geist-mono)',
+              border: `1px solid ${mode === 'drumming' ? 'var(--hihat-color)' : 'var(--accent)'}`,
+              borderRadius: '2px',
+            }}
+          >
+            {mode === 'drumming' ? 'DRUMMING' : 'MUSIC'}
+          </span>
+        )}
         <span
           className="text-xs uppercase tracking-wider px-2 py-0.5"
           style={{
@@ -40,7 +55,7 @@ export default function Header({ status = 'online', children }: HeaderProps) {
             borderRadius: '2px',
           }}
         >
-          STAGE 1
+          STAGE 2
         </span>
         <div className="flex items-center gap-1.5">
           <div

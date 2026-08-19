@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "HearBeat - Music Analysis Engine",
-  description: "Stage 1: Bass and Beat Musical Event Extraction",
+  description: "Stage 2: Music Enjoyment + Drumming Analysis",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

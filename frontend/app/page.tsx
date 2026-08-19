@@ -1,17 +1,24 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { AlertTriangle, FileAudio } from 'lucide-react';
 import Header from '@/components/Header';
 import TrackUpload from '@/components/TrackUpload';
+import ModeSelector from '@/components/ModeSelector';
 import MetricsStrip from '@/components/MetricsStrip';
+import DrumMetricsStrip from '@/components/DrumMetricsStrip';
 import Timeline from '@/components/Timeline';
 import EventInspector from '@/components/EventInspector';
+import DrumEventInspector from '@/components/DrumEventInspector';
 import JsonInspector from '@/components/JsonInspector';
 import PlaybackControls from '@/components/PlaybackControls';
+import DiagnosticPlayer from '@/components/DiagnosticPlayer';
+import DualWaveform from '@/components/DualWaveform';
+import DrumPatternView from '@/components/DrumPatternView';
 import AnalysisProgress from '@/components/AnalysisProgress';
-import { analyzeFile, checkHealth, getJsonDownloadUrl } from '@/lib/api';
-import { AnalysisResult, AppState } from '@/lib/types';
+import { analyzeFile, checkHealth, getJsonDownloadUrl, getWaveformData } from '@/lib/api';
+import { AnalysisResult, AnalysisMode, AppState, DiagnosticLayer, WaveformData } from '@/lib/types';
+import { DRUM_LAYERS, MUSIC_LAYERS } from '@/lib/types';
 
 export default function Home() {
   const [state, setState] = useState<AppState>('idle');
@@ -19,15 +26,31 @@ export default function Home() {
   const [jobId, setJobId] = useState<string>('');
   const [error, setError] = useState<string>('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [mode, setMode] = useState<AnalysisMode>('music');
   const [currentTime, setCurrentTime] = useState(0);
   const [engineStatus, setEngineStatus] = useState<'online' | 'offline' | 'analyzing'>('online');
+
+  const [layers, setLayers] = useState<DiagnosticLayer[]>(
+    mode === 'drumming' ? [...DRUM_LAYERS] : [...MUSIC_LAYERS]
+  );
+  const [originalVolume, setOriginalVolume] = useState(0.5);
+  const [diagnosticVolume, setDiagnosticVolume] = useState(0.7);
+  const [originalWaveform, setOriginalWaveform] = useState<WaveformData | null>(null);
+  const [diagnosticWaveform, setDiagnosticWaveform] = useState<number[] | null>(null);
+
+  // Load waveform data when analysis completes
+  useEffect(() => {
+    if (state !== 'complete' || !jobId) return;
+    getWaveformData(jobId, 2000)
+      .then(setOriginalWaveform)
+      .catch(() => setOriginalWaveform(null));
+  }, [state, jobId]);
 
   const handleFileSelected = useCallback(async (file: File) => {
     setSelectedFile(file);
     setState('file_selected');
     setError('');
 
-    // Check backend health
     try {
       await checkHealth();
     } catch {
@@ -46,7 +69,7 @@ export default function Home() {
     setError('');
 
     try {
-      const job = await analyzeFile(selectedFile);
+      const job = await analyzeFile(selectedFile, mode);
       setJobId(job.job_id);
 
       if (job.status === 'completed' && job.result) {
@@ -63,7 +86,7 @@ export default function Home() {
       setState('error');
       setEngineStatus('online');
     }
-  }, [selectedFile]);
+  }, [selectedFile, mode]);
 
   const handleReset = useCallback(() => {
     setState('idle');
@@ -72,11 +95,21 @@ export default function Home() {
     setError('');
     setSelectedFile(null);
     setCurrentTime(0);
+    setOriginalWaveform(null);
+    setDiagnosticWaveform(null);
   }, []);
+
+  const handleLayerToggle = useCallback((layerId: string) => {
+    setLayers((prev) =>
+      prev.map((l) => (l.id === layerId ? { ...l, enabled: !l.enabled } : l))
+    );
+  }, []);
+
+  const isDrumming = result?.mode === 'drumming';
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg-primary)' }}>
-      <Header status={engineStatus} />
+      <Header status={engineStatus} mode={result?.mode ?? null} />
 
       <main className="flex-1 flex flex-col">
         {/* Upload Section */}
@@ -91,7 +124,7 @@ export default function Home() {
                   Analyze Track
                 </h1>
                 <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                  Upload an audio or video file for beat and bass analysis
+                  Upload an audio or video file for analysis
                 </p>
               </div>
               <TrackUpload onFileSelected={handleFileSelected} />
@@ -102,8 +135,8 @@ export default function Home() {
         {/* File Selected */}
         {state === 'file_selected' && selectedFile && (
           <div className="flex-1 flex items-center justify-center p-8">
-            <div className="w-full max-w-lg panel-elevated p-6">
-              <div className="flex items-center gap-3 mb-4">
+            <div className="w-full max-w-lg panel-elevated p-6 flex flex-col gap-4">
+              <div className="flex items-center gap-3">
                 <FileAudio size={20} style={{ color: 'var(--accent)' }} />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm truncate" style={{ color: 'var(--text-primary)' }}>
@@ -114,6 +147,15 @@ export default function Home() {
                   </p>
                 </div>
               </div>
+
+              <ModeSelector
+                selected={mode}
+                onSelect={(m) => {
+                  setMode(m);
+                  setLayers(m === 'drumming' ? [...DRUM_LAYERS] : [...MUSIC_LAYERS]);
+                }}
+              />
+
               <div className="flex gap-2">
                 <button
                   onClick={handleAnalyze}
@@ -193,6 +235,17 @@ export default function Home() {
                 <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
                   {result.source.duration_seconds.toFixed(1)}s / {result.source.sample_rate} Hz
                 </span>
+                <span
+                  className="text-xs px-1.5 py-0.5"
+                  style={{
+                    color: isDrumming ? 'var(--hihat-color)' : 'var(--accent)',
+                    border: `1px solid ${isDrumming ? 'var(--hihat-color)' : 'var(--accent)'}`,
+                    borderRadius: '2px',
+                    fontFamily: 'var(--font-geist-mono)',
+                  }}
+                >
+                  {isDrumming ? 'DRUMMING' : 'MUSIC'}
+                </span>
               </div>
               <div className="flex items-center gap-2">
                 {result.warnings.length > 0 && (
@@ -231,7 +284,11 @@ export default function Home() {
             </div>
 
             {/* Metrics */}
-            <MetricsStrip result={result} />
+            {isDrumming ? (
+              <DrumMetricsStrip result={result} />
+            ) : (
+              <MetricsStrip result={result} />
+            )}
 
             {/* Warnings */}
             {result.warnings.length > 0 && (
@@ -250,11 +307,40 @@ export default function Home() {
 
             {/* Main content area */}
             <div className="flex-1 overflow-auto p-4 flex flex-col gap-4">
+              {/* Dual waveform for drumming mode */}
+              {isDrumming && jobId && (
+                <DualWaveform
+                  originalData={originalWaveform}
+                  diagnosticData={diagnosticWaveform}
+                  duration={result.source.duration_seconds}
+                  currentTime={currentTime}
+                  onSeek={setCurrentTime}
+                  originalVolume={originalVolume}
+                  diagnosticVolume={diagnosticVolume}
+                />
+              )}
+
               {/* Timeline */}
               <Timeline result={result} currentTime={currentTime} onSeek={setCurrentTime} />
 
               {/* Playback */}
-              {jobId && (
+              {jobId && isDrumming && (
+                <DiagnosticPlayer
+                  jobId={jobId}
+                  duration={result.source.duration_seconds}
+                  mode={result.mode}
+                  layers={layers}
+                  currentTime={currentTime}
+                  onTimeUpdate={setCurrentTime}
+                  onLayerToggle={handleLayerToggle}
+                  originalVolume={originalVolume}
+                  diagnosticVolume={diagnosticVolume}
+                  onOriginalVolumeChange={setOriginalVolume}
+                  onDiagnosticVolumeChange={setDiagnosticVolume}
+                />
+              )}
+
+              {jobId && !isDrumming && (
                 <PlaybackControls
                   jobId={jobId}
                   duration={result.source.duration_seconds}
@@ -263,8 +349,20 @@ export default function Home() {
                 />
               )}
 
+              {/* Drum pattern view (drumming mode) */}
+              {isDrumming && result.drum_events_raw.length > 0 && (
+                <DrumPatternView
+                  drumEvents={result.drum_events_raw}
+                  rhythm={result.rhythm}
+                />
+              )}
+
               {/* Event Inspector */}
-              <EventInspector events={result.events} />
+              {isDrumming ? (
+                <DrumEventInspector events={result.drum_events_raw} />
+              ) : (
+                <EventInspector events={result.events} />
+              )}
 
               {/* JSON Inspector */}
               <JsonInspector result={result} />

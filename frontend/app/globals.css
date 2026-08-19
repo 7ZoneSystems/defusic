@@ -19,6 +19,10 @@
   --bass-beat-color: #CE6A4A;
   --bass-offbeat-color: #CEAE4A;
   --bass-accent-color: #CE4A8A;
+  --kick-color: #CE4A4A;
+  --snare-color: #CEAE4A;
+  --hihat-color: #4ACE7A;
+  --drum-onset-color: #9A6ACE;
   --glass-bg: rgba(17, 20, 24, 0.7);
   --glass-border: rgba(38, 44, 51, 0.5);
 }

@@ -4,16 +4,20 @@ import { Loader } from 'lucide-react';
 
 interface AnalysisProgressProps {
   stage?: string;
+  mode?: string;
 }
 
-const STAGES = ['AUDIO', 'RHYTHM', 'BASS', 'EVENTS'];
+const MUSIC_STAGES = ['AUDIO', 'RHYTHM', 'BASS', 'EVENTS'];
+const DRUM_STAGES = ['AUDIO', 'RHYTHM', 'SEPARATION', 'DRUMS', 'EVENTS'];
 
-export default function AnalysisProgress({ stage }: AnalysisProgressProps) {
+export default function AnalysisProgress({ stage, mode }: AnalysisProgressProps) {
+  const stages = mode === 'drumming' ? DRUM_STAGES : MUSIC_STAGES;
+
   return (
     <div className="panel-elevated p-6 flex flex-col items-center gap-4">
       <Loader size={24} style={{ color: 'var(--accent)' }} className="animate-spin-slow" />
       <div className="flex items-center gap-2">
-        {STAGES.map((s, i) => {
+        {stages.map((s, i) => {
           const isActive = stage?.toUpperCase().includes(s.toLowerCase()) || (!stage && i === 0);
           return (
             <div key={s} className="flex items-center gap-2">
@@ -41,7 +45,7 @@ export default function AnalysisProgress({ stage }: AnalysisProgressProps) {
         })}
       </div>
       <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-        Analyzing track...
+        {mode === 'drumming' ? 'Analyzing drums...' : 'Analyzing track...'}
       </p>
     </div>
   );
