@@ -16,25 +16,23 @@ class DrumAnalysisError(Exception):
 class DrumAnalyzer:
     """Analyzes a drum stem for percussion events.
 
-    Uses Essentia's OnsetDetection (HFC) for onset detection,
+    Uses librosa for onset detection (spectral flux / HFC),
     then applies spectral features for classification.
     """
 
     def __init__(self) -> None:
-        self._onset_detection = None
-        self._onsets = None
+        self._loaded = False
 
     def _ensure_loaded(self) -> None:
-        if self._onset_detection is not None:
+        if self._loaded:
             return
         try:
-            import essentia.standard as es
-            self._onset_detection = True
-            logger.info("Essentia available for drum analysis")
+            import librosa  # noqa: F401
+            self._loaded = True
         except ImportError as e:
             raise DrumAnalysisError(
-                "Essentia is required for drum analysis. "
-                "Install with: pip install essentia"
+                "librosa is required for drum analysis. "
+                "Install with: pip install librosa"
             ) from e
 
     def analyze(
