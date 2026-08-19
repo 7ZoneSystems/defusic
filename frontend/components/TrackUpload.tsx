@@ -42,6 +42,7 @@ export default function TrackUpload({ onFileSelected, disabled }: TrackUploadPro
         background: 'var(--bg-elevated)',
       }}
     >
+      {/* Visually hidden but NOT display:none — .click() works */}
       <input
         ref={inputRef}
         type="file"
@@ -49,7 +50,17 @@ export default function TrackUpload({ onFileSelected, disabled }: TrackUploadPro
         onChange={handleChange}
         disabled={disabled}
         aria-label="Upload audio file"
-        style={{ display: 'none' }}
+        style={{
+          position: 'absolute',
+          width: '1px',
+          height: '1px',
+          padding: 0,
+          margin: '-1px',
+          overflow: 'hidden',
+          clip: 'rect(0,0,0,0)',
+          whiteSpace: 'nowrap',
+          borderWidth: 0,
+        }}
       />
 
       <FileAudio size={32} style={{ color: 'var(--text-muted)' }} strokeWidth={1} />
