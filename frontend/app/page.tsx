@@ -40,7 +40,7 @@ export default function Home() {
   const [error, setError] = useState<string>('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedMeta, setSelectedMeta] = useState<SelectedFileMeta | null>(null);
-  const [restoreAttempted, setRestoreAttempted] = useState(false);
+  const [restoring, setRestoring] = useState(true);
   const [mode, setMode] = useState<AnalysisMode>('music');
   const [currentTime, setCurrentTime] = useState(0);
   const [engineStatus, setEngineStatus] = useState<'online' | 'offline' | 'analyzing'>('online');
@@ -74,23 +74,30 @@ export default function Home() {
     return () => ctrl.destroy();
   }, []);
 
-  // Restore file from IndexedDB on mount (after a potential reload)
+  // Restore file from IndexedDB on mount (after a potential reload).
+  // Always finishes quickly — never blocks the UI.
   useEffect(() => {
-    let cancelled = false;
+    let active = true;
 
     async function tryRestore() {
       try {
-        const meta = await getPersistedMeta();
-        if (cancelled) return;
+        // Race each DB call against a short timeout so we never hang
+        const meta = await Promise.race([
+          getPersistedMeta(),
+          new Promise<null>((r) => setTimeout(r, 500)),
+        ]);
 
-        if (!meta) {
-          setRestoreAttempted(true);
+        if (!active || !meta) {
+          if (active) setRestoring(false);
           return;
         }
 
-        // Attempt full restore (includes blob)
-        const file = await restoreFile();
-        if (cancelled) return;
+        const file = await Promise.race([
+          restoreFile(),
+          new Promise<File | null>((r) => setTimeout(r, 500)),
+        ]);
+
+        if (!active) return;
 
         if (file) {
           setSelectedFile(file);
@@ -101,9 +108,7 @@ export default function Home() {
             lastModified: file.lastModified,
           });
           setState('file_selected');
-          setRestoreAttempted(true);
         } else {
-          // Blob was lost or corrupted — show metadata only with re-select prompt
           setSelectedMeta({
             name: meta.name,
             size: meta.size,
@@ -112,15 +117,15 @@ export default function Home() {
           });
           setError('File selection was interrupted. Please select the track again.');
           setState('error');
-          setRestoreAttempted(true);
         }
       } catch {
-        if (!cancelled) setRestoreAttempted(true);
+        // IndexedDB unavailable or errored — proceed without restore
       }
+      if (active) setRestoring(false);
     }
 
     tryRestore();
-    return () => { cancelled = true; };
+    return () => { active = false; };
   }, []);
 
   // Sync haptic enabled state with config
@@ -280,8 +285,17 @@ export default function Home() {
       <Header status={engineStatus} mode={result?.mode ?? null} />
 
       <main className="flex-1 flex flex-col">
-        {/* Upload Section */}
-        {state === 'idle' && restoreAttempted && (
+        {/* Restore banner (shown briefly if IndexedDB had data) */}
+        {state === 'idle' && restoring && selectedMeta && (
+          <div className="px-4 py-2" style={{ background: 'var(--bg-elevated)', borderBottom: '1px solid var(--border)' }}>
+            <p className="text-xs" style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-geist-mono)' }}>
+              Restoring previous session...
+            </p>
+          </div>
+        )}
+
+        {/* Upload Section — always visible in idle state */}
+        {state === 'idle' && (
           <div className="flex-1 flex items-center justify-center p-8">
             <div className="w-full max-w-lg">
               <div className="mb-6 text-center">
@@ -297,15 +311,6 @@ export default function Home() {
               </div>
               <TrackUpload onFileSelected={handleFileSelected} />
             </div>
-          </div>
-        )}
-
-        {/* Restore in progress — show minimal loader */}
-        {state === 'idle' && !restoreAttempted && (
-          <div className="flex-1 flex items-center justify-center p-8">
-            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-              Restoring...
-            </p>
           </div>
         )}
 
@@ -399,7 +404,6 @@ export default function Home() {
                   onClick={() => {
                     setError('');
                     setState('idle');
-                    setRestoreAttempted(true);
                   }}
                   className="px-4 py-2 text-xs uppercase tracking-wider"
                   style={{
