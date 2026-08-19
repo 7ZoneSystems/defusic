@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hearbeat"
+version = "0.1.0"
+description = "Stage 1: Bass + Beat Musical Event Extraction Engine"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = [
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "python-multipart>=0.0.6",
+    "essentia>=2.1b6.dev90",
+    "librosa>=0.10.1",
+    "numpy>=1.24.0",
+    "scipy>=1.11.0",
+    "demucs>=4.0.0",
+    "torch>=2.0.0",
+    "torchaudio>=2.0.0",
+    "pydantic>=2.5.0",
+    "python-dotenv>=1.0.0",
+    "matplotlib>=3.7.0",
+    "sounddevice>=0.4.6",
+    "soundfile>=0.12.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.23.0",
+    "httpx>=0.25.0",
+]
+
+[project.scripts]
+hearbeat = "hearbeat.cli:main"
+hearbeat-api = "hearbeat.main:run_server"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hearbeat"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
