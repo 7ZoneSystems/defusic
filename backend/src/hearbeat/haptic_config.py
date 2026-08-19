@@ -34,24 +34,29 @@ class HapticConfig:
     Do not scatter constants throughout the codebase.
     """
 
-    beat: HapticEventConfig = field(default_factory=lambda: HapticEventConfig(intensity=0.15, duration_ms=30))
-    hihat: HapticEventConfig = field(default_factory=lambda: HapticEventConfig(intensity=0.40, duration_ms=22))
-    kick: HapticEventConfig = field(default_factory=lambda: HapticEventConfig(intensity=0.70, duration_ms=65))
-    snare: HapticEventConfig = field(default_factory=lambda: HapticEventConfig(intensity=0.55, duration_ms=40))
-    bass: HapticEventConfig = field(default_factory=lambda: HapticEventConfig(intensity=0.80, duration_ms=85))
-    subbass: HapticEventConfig = field(default_factory=lambda: HapticEventConfig(intensity=0.72, duration_ms=110))
-    bass_beat: HapticEventConfig = field(default_factory=lambda: HapticEventConfig(intensity=0.75, duration_ms=70))
-    bass_offbeat: HapticEventConfig = field(default_factory=lambda: HapticEventConfig(intensity=0.50, duration_ms=50))
-    bass_accent: HapticEventConfig = field(default_factory=lambda: HapticEventConfig(intensity=0.85, duration_ms=90))
-    bass_activity: HapticEventConfig = field(default_factory=lambda: HapticEventConfig(intensity=0.65, duration_ms=100))
+    beat: HapticEventConfig = field(default_factory=lambda: HapticEventConfig(intensity=0.15, duration_ms=65))
+    hihat: HapticEventConfig = field(default_factory=lambda: HapticEventConfig(intensity=0.40, duration_ms=144))
+    kick: HapticEventConfig = field(default_factory=lambda: HapticEventConfig(intensity=0.70, duration_ms=200))
+    snare: HapticEventConfig = field(default_factory=lambda: HapticEventConfig(intensity=0.55, duration_ms=167))
+    bass: HapticEventConfig = field(default_factory=lambda: HapticEventConfig(intensity=0.80, duration_ms=200))
+    subbass: HapticEventConfig = field(default_factory=lambda: HapticEventConfig(intensity=0.72, duration_ms=170))
+    bass_beat: HapticEventConfig = field(default_factory=lambda: HapticEventConfig(intensity=0.75, duration_ms=150))
+    bass_offbeat: HapticEventConfig = field(default_factory=lambda: HapticEventConfig(intensity=0.50, duration_ms=100))
+    bass_accent: HapticEventConfig = field(default_factory=lambda: HapticEventConfig(intensity=0.85, duration_ms=180))
+    bass_activity: HapticEventConfig = field(default_factory=lambda: HapticEventConfig(intensity=0.25, duration_ms=200))
+    subbass_activity: HapticEventConfig = field(default_factory=lambda: HapticEventConfig(intensity=0.50, duration_ms=170))
     drum_onset: HapticEventConfig = field(default_factory=lambda: HapticEventConfig(intensity=0.50, duration_ms=155))
-    cymbal: HapticEventConfig = field(default_factory=lambda: HapticEventConfig(intensity=0.45, duration_ms=30))
-    percussion: HapticEventConfig = field(default_factory=lambda: HapticEventConfig(intensity=0.50, duration_ms=35))
+    cymbal: HapticEventConfig = field(default_factory=lambda: HapticEventConfig(intensity=0.45, duration_ms=100))
+    percussion: HapticEventConfig = field(default_factory=lambda: HapticEventConfig(intensity=0.50, duration_ms=120))
 
     anticipation: AnticipationConfig = field(default_factory=AnticipationConfig)
 
     minimum_gap_ms: int = 20
     master_intensity: float = 1.0
+
+    # Adaptive haptic scaling
+    adaptive_enabled: bool = True
+    adaptive_gain_strength: float = 1.0  # 0.0 = off, 1.0 = full
 
     def __post_init__(self) -> None:
         self.minimum_gap_ms = max(0, self.minimum_gap_ms)
@@ -70,6 +75,7 @@ class HapticConfig:
             "bass_offbeat": self.bass_offbeat,
             "bass_accent": self.bass_accent,
             "bass_activity": self.bass_activity,
+            "subbass_activity": self.subbass_activity,
             "drum_onset": self.drum_onset,
             "cymbal": self.cymbal,
             "percussion": self.percussion,
@@ -83,19 +89,20 @@ class HapticConfig:
 def drummer_default() -> HapticConfig:
     """Default preset optimized for drumming mode."""
     return HapticConfig(
-        beat=HapticEventConfig(intensity=0.15, duration_ms=30),
-        hihat=HapticEventConfig(intensity=0.40, duration_ms=22),
-        kick=HapticEventConfig(intensity=0.70, duration_ms=65),
-        snare=HapticEventConfig(intensity=0.55, duration_ms=40),
-        bass=HapticEventConfig(intensity=0.80, duration_ms=85),
-        subbass=HapticEventConfig(intensity=0.72, duration_ms=110),
-        bass_beat=HapticEventConfig(intensity=0.75, duration_ms=70),
-        bass_offbeat=HapticEventConfig(intensity=0.50, duration_ms=50),
-        bass_accent=HapticEventConfig(intensity=0.85, duration_ms=90),
-        bass_activity=HapticEventConfig(intensity=0.65, duration_ms=100),
+        beat=HapticEventConfig(intensity=0.15, duration_ms=65),
+        hihat=HapticEventConfig(intensity=0.40, duration_ms=144),
+        kick=HapticEventConfig(intensity=0.70, duration_ms=200),
+        snare=HapticEventConfig(intensity=0.55, duration_ms=167),
+        bass=HapticEventConfig(intensity=0.80, duration_ms=200),
+        subbass=HapticEventConfig(intensity=0.72, duration_ms=170),
+        bass_beat=HapticEventConfig(intensity=0.75, duration_ms=150),
+        bass_offbeat=HapticEventConfig(intensity=0.50, duration_ms=100),
+        bass_accent=HapticEventConfig(intensity=0.85, duration_ms=180),
+        bass_activity=HapticEventConfig(intensity=0.25, duration_ms=200),
+        subbass_activity=HapticEventConfig(intensity=0.50, duration_ms=170),
         drum_onset=HapticEventConfig(intensity=0.50, duration_ms=155),
-        cymbal=HapticEventConfig(intensity=0.45, duration_ms=30),
-        percussion=HapticEventConfig(intensity=0.50, duration_ms=35),
+        cymbal=HapticEventConfig(intensity=0.45, duration_ms=100),
+        percussion=HapticEventConfig(intensity=0.50, duration_ms=120),
         anticipation=AnticipationConfig(enabled=False),
         minimum_gap_ms=20,
         master_intensity=1.0,
@@ -105,19 +112,20 @@ def drummer_default() -> HapticConfig:
 def music_enjoyment() -> HapticConfig:
     """Preset for music enjoyment mode — emphasis on bass structure."""
     return HapticConfig(
-        beat=HapticEventConfig(intensity=0.12, duration_ms=25),
-        hihat=HapticEventConfig(intensity=0.30, duration_ms=20),
-        kick=HapticEventConfig(intensity=0.60, duration_ms=55),
-        snare=HapticEventConfig(intensity=0.50, duration_ms=35),
-        bass=HapticEventConfig(intensity=0.85, duration_ms=90),
-        subbass=HapticEventConfig(intensity=0.78, duration_ms=120),
-        bass_beat=HapticEventConfig(intensity=0.80, duration_ms=75),
-        bass_offbeat=HapticEventConfig(intensity=0.55, duration_ms=55),
-        bass_accent=HapticEventConfig(intensity=0.90, duration_ms=95),
-        bass_activity=HapticEventConfig(intensity=0.70, duration_ms=110),
+        beat=HapticEventConfig(intensity=0.12, duration_ms=55),
+        hihat=HapticEventConfig(intensity=0.30, duration_ms=120),
+        kick=HapticEventConfig(intensity=0.60, duration_ms=175),
+        snare=HapticEventConfig(intensity=0.50, duration_ms=145),
+        bass=HapticEventConfig(intensity=0.85, duration_ms=210),
+        subbass=HapticEventConfig(intensity=0.78, duration_ms=185),
+        bass_beat=HapticEventConfig(intensity=0.80, duration_ms=160),
+        bass_offbeat=HapticEventConfig(intensity=0.55, duration_ms=110),
+        bass_accent=HapticEventConfig(intensity=0.90, duration_ms=195),
+        bass_activity=HapticEventConfig(intensity=0.30, duration_ms=200),
+        subbass_activity=HapticEventConfig(intensity=0.55, duration_ms=180),
         drum_onset=HapticEventConfig(intensity=0.45, duration_ms=140),
-        cymbal=HapticEventConfig(intensity=0.40, duration_ms=25),
-        percussion=HapticEventConfig(intensity=0.45, duration_ms=30),
+        cymbal=HapticEventConfig(intensity=0.40, duration_ms=90),
+        percussion=HapticEventConfig(intensity=0.45, duration_ms=110),
         anticipation=AnticipationConfig(
             enabled=True,
             offsets_ms=[250, 120],

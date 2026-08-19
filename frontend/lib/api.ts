@@ -75,3 +75,11 @@ export async function getPresets(): Promise<{ presets: string[] }> {
   if (!res.ok) throw new Error('Failed to fetch presets');
   return res.json();
 }
+
+export async function getLoudnessProfile(
+  jobId: string
+): Promise<Record<string, unknown>> {
+  const res = await fetch(`${API_URL}/analysis/${jobId}/loudness`);
+  if (!res.ok) throw new Error('Failed to fetch loudness profile');
+  return res.json();
+}

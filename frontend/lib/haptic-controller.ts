@@ -1,8 +1,15 @@
 /**
- * HapticController — manages haptic event scheduling, playback sync, and device control.
+ * HapticController — audio-synchronized haptic event scheduler.
  *
- * Consumes a HapticTimeline from the backend and schedules events
- * synchronized with audio playback.
+ * The HTMLAudioElement is the authoritative clock.
+ * This controller reads audio.currentTime and schedules haptic events
+ * in a rolling window ahead of the current playback position.
+ *
+ * Key design:
+ * - No independent playback timer (no performance.now() clock)
+ * - Session token prevents stale callbacks after pause/seek/stop
+ * - Hard-stop on all audio state changes
+ * - Rolling 200ms scheduling window
  */
 
 import { HapticEvent, HapticTimeline } from './haptic-types';
@@ -10,10 +17,14 @@ import { HapticDriver } from './haptic-driver';
 
 const SCHEDULE_AHEAD_MS = 200;
 const TICK_INTERVAL_MS = 50;
+const DRIFT_THRESHOLD_MS = 50;
+const LARGE_DRIFT_MS = 100;
+
+export type HapticPlaybackState = 'idle' | 'loaded' | 'playing' | 'paused';
 
 export interface HapticControllerCallbacks {
   onEvent?: (event: HapticEvent) => void;
-  onStateChange?: (state: 'idle' | 'playing' | 'paused') => void;
+  onStateChange?: (state: HapticPlaybackState) => void;
 }
 
 export class HapticController {
@@ -21,32 +32,31 @@ export class HapticController {
   private timeline: HapticTimeline | null = null;
   private enabled = false;
   private playing = false;
-  private startTime = 0;
-  private pauseOffset = 0;
   private tickTimer: ReturnType<typeof setInterval> | null = null;
-  private scheduledUpTo = 0;
   private eventIndex = 0;
   private callbacks: HapticControllerCallbacks;
+  private sessionId = 0;
+  private lastEventTime = -1;
+  private getAudioTime: (() => number) | null = null;
 
   constructor(driver: HapticDriver, callbacks: HapticControllerCallbacks = {}) {
     this.driver = driver;
     this.callbacks = callbacks;
   }
 
-  /** Load a haptic timeline. */
+  /** Load a haptic timeline. Does NOT start playback. */
   load(timeline: HapticTimeline): void {
-    this.stop();
+    this.hardStop();
     this.timeline = timeline;
     this.eventIndex = 0;
-    this.scheduledUpTo = 0;
+    this.callbacks.onStateChange?.('loaded');
   }
 
   /** Enable/disable haptic output. */
   setEnabled(enabled: boolean): void {
     this.enabled = enabled;
     if (!enabled) {
-      this.driver.cancel();
-      this.stopTicking();
+      this.hardStop();
     }
   }
 
@@ -54,71 +64,49 @@ export class HapticController {
     return this.enabled;
   }
 
-  /** Start playback from current position. */
-  play(): void {
+  /**
+   * Start haptic scheduling. Must only be called after audio is confirmed playing.
+   * @param audioCurrentTimeS - The audio element's current time in seconds
+   * @param getAudioTime - Callback that returns current audio time (used by tick loop)
+   */
+  play(audioCurrentTimeS: number, getAudioTime?: () => number): void {
     if (!this.enabled || !this.timeline) return;
     if (this.playing) return;
 
+    this.sessionId++;
     this.playing = true;
-    this.startTime = performance.now() - this.pauseOffset;
-    this.scheduledUpTo = this.pauseOffset;
+    this.getAudioTime = getAudioTime ?? null;
+    this.eventIndex = this.findEventIndex(audioCurrentTimeS * 1000);
+    this.lastEventTime = audioCurrentTimeS;
     this.startTicking();
     this.callbacks.onStateChange?.('playing');
   }
 
-  /** Pause playback. */
+  /** Hard stop: cancel all pending callbacks, clear vibration, invalidate session. */
   pause(): void {
     if (!this.playing) return;
-
-    this.playing = false;
-    this.pauseOffset = performance.now() - this.startTime;
-    this.stopTicking();
-    this.driver.cancel();
+    this.hardStop();
     this.callbacks.onStateChange?.('paused');
   }
 
-  /** Stop playback and reset. */
+  /** Stop and reset everything. */
   stop(): void {
-    this.playing = false;
-    this.pauseOffset = 0;
-    this.startTime = 0;
+    this.hardStop();
     this.eventIndex = 0;
-    this.scheduledUpTo = 0;
-    this.stopTicking();
-    this.driver.cancel();
+    this.lastEventTime = -1;
+    this.getAudioTime = null;
     this.callbacks.onStateChange?.('idle');
   }
 
-  /** Seek to a specific time in seconds. */
-  seek(timeSeconds: number): void {
-    const timeMs = timeSeconds * 1000;
-
-    // Cancel any pending vibrations
+  /**
+   * Seek to a new position. Must be called with the audio element's currentTime.
+   * If audio is playing, reschedules from the new position.
+   * If audio is paused, just repositions the cursor.
+   */
+  seek(audioCurrentTimeS: number): void {
     this.driver.cancel();
-
-    // Reset event index to find the first event at or after this time
-    this.pauseOffset = timeMs;
-    this.scheduledUpTo = timeMs;
-
-    // Binary search for the correct event index
-    if (this.timeline) {
-      this.eventIndex = this.findEventIndex(timeMs);
-    }
-
-    if (this.playing) {
-      this.startTime = performance.now() - timeMs;
-    }
-  }
-
-  /** Get current playback position in seconds. */
-  getCurrentTime(): number {
-    if (!this.playing) return this.pauseOffset / 1000;
-    return (performance.now() - this.startTime) / 1000;
-  }
-
-  /** Get timeline duration in seconds. */
-  getDuration(): number {
-    return this.timeline?.duration_seconds ?? 0;
+    this.eventIndex = this.findEventIndex(audioCurrentTimeS * 1000);
+    this.lastEventTime = audioCurrentTimeS;
   }
 
   /** Get number of events in timeline. */
@@ -137,13 +125,30 @@ export class HapticController {
     this.driver.vibrate(intensity, duration_ms);
   }
 
+  /** Get current session ID (for debugging). */
+  getSessionId(): number {
+    return this.sessionId;
+  }
+
+  /** Get the last scheduled event time (for debugging). */
+  getLastEventTime(): number {
+    return this.lastEventTime;
+  }
+
   /** Cleanup. */
   destroy(): void {
-    this.stop();
+    this.hardStop();
     this.timeline = null;
   }
 
-  // --- Private scheduling ---
+  // --- Private ---
+
+  private hardStop(): void {
+    this.playing = false;
+    this.sessionId++;
+    this.stopTicking();
+    this.driver.cancel();
+  }
 
   private startTicking(): void {
     this.stopTicking();
@@ -158,48 +163,67 @@ export class HapticController {
   }
 
   private tick(): void {
-    if (!this.playing || !this.timeline) return;
+    if (!this.playing || !this.timeline || !this.getAudioTime) return;
 
-    const nowMs = performance.now() - this.startTime;
-    const scheduleEnd = nowMs + SCHEDULE_AHEAD_MS;
+    const currentSession = this.sessionId;
+    const audioTimeS = this.getAudioTime();
+    const audioTimeMs = audioTimeS * 1000;
 
+    // Drift correction: if audio has jumped (seek, stall recovery), resync
+    const expectedTimeMs = this.lastEventTime * 1000;
+    const driftMs = Math.abs(audioTimeMs - expectedTimeMs);
+
+    if (driftMs > LARGE_DRIFT_MS) {
+      // Large drift: discard stale events, resync cursor
+      this.eventIndex = this.findEventIndex(audioTimeMs);
+    } else if (driftMs > DRIFT_THRESHOLD_MS) {
+      // Moderate drift: resync event index
+      this.eventIndex = this.findEventIndex(audioTimeMs);
+    }
+
+    this.lastEventTime = audioTimeS;
+
+    // Schedule events in the look-ahead window
+    const scheduleEnd = audioTimeMs + SCHEDULE_AHEAD_MS;
     const events = this.timeline.events;
+
     while (this.eventIndex < events.length) {
       const event = events[this.eventIndex];
       const eventTimeMs = event.time * 1000;
 
       if (eventTimeMs > scheduleEnd) break;
 
-      if (eventTimeMs >= nowMs - 10) {
-        // Event is in the near future (within tick resolution)
-        const delayMs = Math.max(0, eventTimeMs - nowMs);
-        this.scheduleEvent(event, delayMs);
+      // Only fire events that are in the near future or very slightly in the past
+      if (eventTimeMs >= audioTimeMs - 10) {
+        const delayMs = Math.max(0, eventTimeMs - audioTimeMs);
+        this.scheduleEvent(event, delayMs, currentSession);
       }
 
       this.eventIndex++;
     }
 
-    this.scheduledUpTo = scheduleEnd;
-
     // Check if we've reached the end of the timeline
-    if (this.eventIndex >= events.length && nowMs > (this.timeline.duration_seconds * 1000)) {
+    if (this.eventIndex >= events.length && audioTimeMs > (this.timeline.duration_seconds * 1000)) {
       this.stop();
     }
   }
 
-  private scheduleEvent(event: HapticEvent, delayMs: number): void {
+  private scheduleEvent(event: HapticEvent, delayMs: number, session: number): void {
     if (!this.enabled) return;
 
-    if (delayMs <= 0) {
+    const execute = () => {
+      // Validate session before executing
+      if (session !== this.sessionId) return;
+      if (!this.enabled || !this.playing) return;
       this.driver.vibrate(event.intensity, event.duration_ms);
       this.callbacks.onEvent?.(event);
+      this.lastEventTime = event.time;
+    };
+
+    if (delayMs <= 0) {
+      execute();
     } else {
-      setTimeout(() => {
-        if (this.enabled && this.playing) {
-          this.driver.vibrate(event.intensity, event.duration_ms);
-          this.callbacks.onEvent?.(event);
-        }
-      }, delayMs);
+      setTimeout(execute, delayMs);
     }
   }
 

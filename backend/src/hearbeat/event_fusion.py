@@ -132,6 +132,10 @@ def _classify_bass_event(
 ) -> EventType:
     """Classify a bass event based on its characteristics."""
     if be.get("event_kind") == "activity":
+        # Use the event_type from bass analyzer (subbass_activity vs bass_activity)
+        activity_type = be.get("event_type", "bass_activity")
+        if activity_type == "subbass_activity":
+            return EventType.SUBBASS_ACTIVITY
         return EventType.BASS_ACTIVITY
 
     if beats is None or len(beats) == 0:
@@ -172,18 +176,19 @@ def _deduplicate_events(events: list[AnalysisEvent]) -> list[AnalysisEvent]:
 
     priority = {
         "subbass": 0,
-        "bass_activity": 1,
-        "bass_accent": 2,
-        "bass_beat": 3,
-        "bass": 4,
-        "kick": 5,
-        "snare": 6,
-        "hihat": 7,
-        "bass_offbeat": 8,
-        "drum_onset": 9,
-        "cymbal": 10,
-        "percussion": 11,
-        "beat": 12,
+        "bass_accent": 1,
+        "bass_beat": 2,
+        "bass": 3,
+        "kick": 4,
+        "snare": 5,
+        "hihat": 6,
+        "bass_offbeat": 7,
+        "drum_onset": 8,
+        "subbass_activity": 9,
+        "bass_activity": 10,
+        "cymbal": 11,
+        "percussion": 12,
+        "beat": 13,
     }
 
     events.sort(key=lambda e: (e.time, priority.get(e.type, 99)))

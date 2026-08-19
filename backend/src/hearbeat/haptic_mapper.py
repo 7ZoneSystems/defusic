@@ -2,6 +2,8 @@
 
 This module does NOT perform audio analysis.
 It operates on existing AnalysisEvent lists and produces HapticEvent lists.
+
+Supports adaptive loudness scaling via optional LoudnessProfile.
 """
 
 from __future__ import annotations
@@ -15,20 +17,22 @@ from hearbeat.models import AnalysisEvent, EventType
 logger = logging.getLogger(__name__)
 
 # Priority hierarchy: lower number = higher priority
+# Activity events are background layers — lower priority than discrete transients.
 _EVENT_PRIORITY: dict[str, int] = {
     "subbass": 0,
-    "bass_activity": 1,
-    "bass_accent": 2,
-    "bass_beat": 3,
-    "bass": 4,
-    "kick": 5,
-    "snare": 6,
-    "hihat": 7,
-    "bass_offbeat": 8,
-    "drum_onset": 9,
-    "cymbal": 10,
-    "percussion": 11,
-    "beat": 12,
+    "bass_accent": 1,
+    "bass_beat": 2,
+    "bass": 3,
+    "kick": 4,
+    "snare": 5,
+    "hihat": 6,
+    "bass_offbeat": 7,
+    "drum_onset": 8,
+    "subbass_activity": 9,
+    "bass_activity": 10,
+    "cymbal": 11,
+    "percussion": 12,
+    "beat": 13,
 }
 
 
@@ -96,8 +100,22 @@ class HapticMapper:
         self,
         events: list[AnalysisEvent],
         duration_seconds: float,
-    ) -> HapticTimeline:
-        """Convert a list of analysis events to a haptic timeline."""
+        loudness_profile: object | None = None,
+        adaptive_enabled: bool = True,
+        adaptive_gain_strength: float = 1.0,
+    ) -> tuple[HapticTimeline, list[dict]]:
+        """Convert a list of analysis events to a haptic timeline.
+
+        Args:
+            events: Analysis events from pipeline.
+            duration_seconds: Track duration.
+            loudness_profile: Optional LoudnessProfile for adaptive scaling.
+            adaptive_enabled: Whether adaptive scaling is active.
+            adaptive_gain_strength: Manual strength slider (0.0-1.0).
+
+        Returns:
+            (HapticTimeline, adaptive_debug_info)
+        """
         # Step 1: Map each event to a haptic event
         raw_haptic: list[HapticEvent] = []
         for event in events:
@@ -117,6 +135,18 @@ class HapticMapper:
         # Sort by time
         rate_limited.sort(key=lambda e: (e.time, _EVENT_PRIORITY.get(e.type, 99)))
 
+        # Step 5: Adaptive loudness scaling
+        adaptive_debug: list[dict] = []
+        if loudness_profile is not None and adaptive_enabled:
+            from hearbeat.adaptive_haptics import adapt_timeline, AdaptiveConfig
+            rate_limited, adaptive_debug = adapt_timeline(
+                rate_limited,
+                loudness_profile,
+                config=AdaptiveConfig(),
+                enabled=adaptive_enabled,
+                gain_strength=adaptive_gain_strength,
+            )
+
         timeline = HapticTimeline(
             duration_seconds=duration_seconds,
             events=rate_limited,
@@ -124,12 +154,13 @@ class HapticMapper:
         )
 
         logger.info(
-            "Mapped %d analysis events -> %d haptic events (duration=%.1fs)",
+            "Mapped %d analysis events -> %d haptic events (duration=%.1fs, adaptive=%s)",
             len(events),
             len(rate_limited),
             duration_seconds,
+            "ON" if (adaptive_enabled and loudness_profile) else "OFF",
         )
-        return timeline
+        return timeline, adaptive_debug
 
     def _map_single_event(self, event: AnalysisEvent) -> HapticEvent | None:
         """Map a single analysis event to a haptic event."""
@@ -264,18 +295,32 @@ class HapticMapper:
 
         If two events are closer than minimum_gap_ms, drop the lower-priority one.
         Anticipation events are dropped if too close to a real event in either direction.
+        Activity events (bass_activity, subbass_activity) get sparse reinforcement.
         """
         if not events:
             return []
 
+        # Sparse reinforcement for activity events: minimum 2.0s between same-type activity
+        ACTIVITY_MIN_GAP_S = 2.0
+        last_activity_time: dict[str, float] = {}
+
+        filtered: list[HapticEvent] = []
+        for event in events:
+            if event.type in ("bass_activity", "subbass_activity"):
+                last_t = last_activity_time.get(event.type, -999.0)
+                if event.time - last_t < ACTIVITY_MIN_GAP_S:
+                    continue
+                last_activity_time[event.type] = event.time
+            filtered.append(event)
+
         min_gap_s = self.config.minimum_gap_ms / 1000.0
-        events.sort(key=lambda e: (e.time, _EVENT_PRIORITY.get(e.type, 99)))
+        filtered.sort(key=lambda e: (e.time, _EVENT_PRIORITY.get(e.type, 99)))
 
         output: list[HapticEvent] = []
         last_time = -999.0
         last_real_time = -999.0  # Track last non-anticipation event separately
 
-        for event in events:
+        for event in filtered:
             gap = event.time - last_time
             gap_from_real = event.time - last_real_time
 

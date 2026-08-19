@@ -135,27 +135,14 @@ export default function Home() {
     }
   }, [hapticConfig.master_intensity, hapticController]);
 
-  // Sync haptic timeline when it changes
+  // Sync haptic timeline when it changes (load only, do NOT auto-start)
   useEffect(() => {
     if (hapticController && hapticTimeline) {
       hapticController.load(hapticTimeline);
-      if (hapticConfig.master_intensity > 0) {
-        hapticController.play();
-      }
     }
-  }, [hapticTimeline, hapticConfig.master_intensity, hapticController]);
+  }, [hapticTimeline, hapticController]);
 
-  // Sync haptic seek with currentTime
-  const lastSeekRef = useRef(0);
-  useEffect(() => {
-    if (!hapticController || !hapticTimeline) return;
-    const now = Date.now();
-    const delta = Math.abs(currentTime - lastSeekRef.current);
-    if (delta > 0.3 || (delta > 0.05 && now - lastSeekRef.current < 100)) {
-      hapticController.seek(currentTime);
-    }
-    lastSeekRef.current = currentTime;
-  }, [currentTime, hapticTimeline, hapticController]);
+  // Haptic seek is handled by audio player components via hapticController.seek()
 
   // Load haptic timeline when analysis completes
   useEffect(() => {
@@ -191,6 +178,8 @@ export default function Home() {
         subbass_intensity: hapticConfig.subbass.intensity,
         subbass_duration_ms: hapticConfig.subbass.duration_ms,
         anticipation_enabled: hapticConfig.anticipation_enabled,
+        adaptive_enabled: hapticConfig.adaptive_enabled,
+        adaptive_gain_strength: hapticConfig.adaptive_gain_strength,
       })
         .then(setHapticTimeline)
         .catch(() => {});
@@ -543,6 +532,7 @@ export default function Home() {
                   diagnosticVolume={diagnosticVolume}
                   onOriginalVolumeChange={setOriginalVolume}
                   onDiagnosticVolumeChange={setDiagnosticVolume}
+                  hapticController={hapticController}
                 />
               )}
 
@@ -552,6 +542,7 @@ export default function Home() {
                   duration={result.source.duration_seconds}
                   currentTime={currentTime}
                   onTimeUpdate={setCurrentTime}
+                  hapticController={hapticController}
                 />
               )}
 

@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { Play, Pause, SkipBack, Volume2 } from 'lucide-react';
 import { getOriginalAudioUrl, getDiagnosticAudioUrl } from '@/lib/api';
 import { DiagnosticLayer, AnalysisMode } from '@/lib/types';
+import { HapticController } from '@/lib/haptic-controller';
 
 interface DiagnosticPlayerProps {
   jobId: string;
@@ -17,6 +18,7 @@ interface DiagnosticPlayerProps {
   diagnosticVolume: number;
   onOriginalVolumeChange: (v: number) => void;
   onDiagnosticVolumeChange: (v: number) => void;
+  hapticController?: HapticController | null;
 }
 
 export default function DiagnosticPlayer({
@@ -30,11 +32,11 @@ export default function DiagnosticPlayer({
   diagnosticVolume,
   onOriginalVolumeChange,
   onDiagnosticVolumeChange,
+  hapticController,
 }: DiagnosticPlayerProps) {
   const originalRef = useRef<HTMLAudioElement>(null);
   const diagnosticRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
-  const [syncSource, setSyncSource] = useState<'original' | 'diagnostic' | null>(null);
 
   const activeLayers = layers.filter((l) => l.enabled).map((l) => l.id);
   const diagnosticUrl = getDiagnosticAudioUrl(jobId, activeLayers);
@@ -49,77 +51,141 @@ export default function DiagnosticPlayer({
     if (diagnosticRef.current) diagnosticRef.current.volume = diagnosticVolume;
   }, [diagnosticVolume]);
 
-  // Sync time updates from both elements
+  // Time updates from original (master) audio
   const handleOriginalTimeUpdate = useCallback(() => {
     const audio = originalRef.current;
     if (!audio) return;
     onTimeUpdate(audio.currentTime);
 
-    // Sync diagnostic to original
-    if (diagnosticRef.current && syncSource !== 'diagnostic') {
+    // Sync diagnostic to original (follower)
+    if (diagnosticRef.current) {
       const diag = diagnosticRef.current;
       if (Math.abs(diag.currentTime - audio.currentTime) > 0.1) {
         diag.currentTime = audio.currentTime;
       }
     }
-  }, [onTimeUpdate, syncSource]);
-
-  const handleDiagnosticTimeUpdate = useCallback(() => {
-    const audio = diagnosticRef.current;
-    if (!audio) return;
-    onTimeUpdate(audio.currentTime);
-
-    // Sync original to diagnostic
-    if (originalRef.current && syncSource !== 'original') {
-      const orig = originalRef.current;
-      if (Math.abs(orig.currentTime - audio.currentTime) > 0.1) {
-        orig.currentTime = audio.currentTime;
-      }
-    }
-  }, [onTimeUpdate, syncSource]);
+  }, [onTimeUpdate]);
 
   useEffect(() => {
     const orig = originalRef.current;
-    const diag = diagnosticRef.current;
-    if (!orig || !diag) return;
-
+    if (!orig) return;
     orig.addEventListener('timeupdate', handleOriginalTimeUpdate);
-    diag.addEventListener('timeupdate', handleDiagnosticTimeUpdate);
+    return () => orig.removeEventListener('timeupdate', handleOriginalTimeUpdate);
+  }, [handleOriginalTimeUpdate]);
+
+  // Audio event bridge to haptic controller (original = master clock)
+  useEffect(() => {
+    const audio = originalRef.current;
+    if (!audio || !hapticController) return;
+
+    const handlePlay = () => {
+      setPlaying(true);
+      hapticController.play(audio.currentTime, () => audio.currentTime);
+      // Sync diagnostic follower
+      if (diagnosticRef.current && diagnosticRef.current.paused) {
+        diagnosticRef.current.play().catch(() => {});
+      }
+    };
+
+    const handlePause = () => {
+      setPlaying(false);
+      hapticController.pause();
+      // Pause diagnostic follower
+      if (diagnosticRef.current && !diagnosticRef.current.paused) {
+        diagnosticRef.current.pause();
+      }
+    };
+
+    const handleEnded = () => {
+      setPlaying(false);
+      hapticController.stop();
+      if (diagnosticRef.current && !diagnosticRef.current.paused) {
+        diagnosticRef.current.pause();
+      }
+    };
+
+    const handleSeeking = () => {
+      hapticController.pause();
+    };
+
+    const handleSeeked = () => {
+      if (!audio.paused) {
+        hapticController.seek(audio.currentTime);
+        hapticController.play(audio.currentTime, () => audio.currentTime);
+        // Sync diagnostic follower
+        if (diagnosticRef.current) {
+          diagnosticRef.current.currentTime = audio.currentTime;
+          if (diagnosticRef.current.paused) {
+            diagnosticRef.current.play().catch(() => {});
+          }
+        }
+      } else {
+        hapticController.seek(audio.currentTime);
+        if (diagnosticRef.current) {
+          diagnosticRef.current.currentTime = audio.currentTime;
+        }
+      }
+    };
+
+    const handleWaiting = () => {
+      hapticController.pause();
+    };
+
+    const handleStalled = () => {
+      hapticController.pause();
+    };
+
+    const handleError = () => {
+      setPlaying(false);
+      hapticController.stop();
+    };
+
+    audio.addEventListener('play', handlePlay);
+    audio.addEventListener('pause', handlePause);
+    audio.addEventListener('ended', handleEnded);
+    audio.addEventListener('seeking', handleSeeking);
+    audio.addEventListener('seeked', handleSeeked);
+    audio.addEventListener('waiting', handleWaiting);
+    audio.addEventListener('stalled', handleStalled);
+    audio.addEventListener('error', handleError);
 
     return () => {
-      orig.removeEventListener('timeupdate', handleOriginalTimeUpdate);
-      diag.removeEventListener('timeupdate', handleDiagnosticTimeUpdate);
+      audio.removeEventListener('play', handlePlay);
+      audio.removeEventListener('pause', handlePause);
+      audio.removeEventListener('ended', handleEnded);
+      audio.removeEventListener('seeking', handleSeeking);
+      audio.removeEventListener('seeked', handleSeeked);
+      audio.removeEventListener('waiting', handleWaiting);
+      audio.removeEventListener('stalled', handleStalled);
+      audio.removeEventListener('error', handleError);
     };
-  }, [handleOriginalTimeUpdate, handleDiagnosticTimeUpdate]);
+  }, [hapticController]);
 
-  const togglePlay = () => {
+  const togglePlay = useCallback(() => {
     const orig = originalRef.current;
-    const diag = diagnosticRef.current;
-    if (!orig || !diag) return;
+    if (!orig) return;
 
-    if (playing) {
-      orig.pause();
-      diag.pause();
+    if (orig.paused) {
+      orig.play().catch(() => {
+        setPlaying(false);
+      });
     } else {
-      setSyncSource('original');
-      orig.play().catch(() => {});
-      diag.play().catch(() => {});
+      orig.pause();
     }
-    setPlaying(!playing);
-  };
+  }, []);
 
-  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleSeek = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const time = parseFloat(e.target.value);
     onTimeUpdate(time);
     if (originalRef.current) originalRef.current.currentTime = time;
     if (diagnosticRef.current) diagnosticRef.current.currentTime = time;
-  };
+  }, [onTimeUpdate]);
 
-  const handleRestart = () => {
+  const handleRestart = useCallback(() => {
     onTimeUpdate(0);
     if (originalRef.current) originalRef.current.currentTime = 0;
     if (diagnosticRef.current) diagnosticRef.current.currentTime = 0;
-  };
+  }, [onTimeUpdate]);
 
   const formatTime = (t: number) => {
     const m = Math.floor(t / 60);

@@ -25,9 +25,11 @@ from hearbeat.models import AnalysisEvent, HapticEventModel, HapticTimelineModel
 def test_haptic_config_defaults():
     cfg = HapticConfig()
     assert cfg.beat.intensity == 0.15
-    assert cfg.beat.duration_ms == 30
+    assert cfg.beat.duration_ms == 65
     assert cfg.kick.intensity == 0.70
+    assert cfg.kick.duration_ms == 200
     assert cfg.bass.intensity == 0.80
+    assert cfg.bass.duration_ms == 200
     assert cfg.minimum_gap_ms == 20
     assert cfg.master_intensity == 1.0
 
@@ -47,11 +49,11 @@ def test_haptic_config_for_event_type():
     cfg = HapticConfig()
     beat = cfg.for_event_type("beat")
     assert beat.intensity == 0.15
-    assert beat.duration_ms == 30
+    assert beat.duration_ms == 65
 
     kick = cfg.for_event_type("kick")
     assert kick.intensity == 0.70
-    assert kick.duration_ms == 65
+    assert kick.duration_ms == 200
 
     # Unknown type falls back to beat
     unknown = cfg.for_event_type("nonexistent")
@@ -109,14 +111,14 @@ def _make_event(time: float, event_type: str, strength: float = 0.5) -> Analysis
 def test_mapper_basic_beat():
     mapper = HapticMapper()
     events = [_make_event(1.0, "beat", 0.5)]
-    timeline = mapper.map_events(events, duration_seconds=10.0)
+    timeline, _ = mapper.map_events(events, duration_seconds=10.0)
 
     assert len(timeline.events) == 1
     h = timeline.events[0]
     assert h.time == 1.0
     assert h.type == "beat"
     assert h.intensity > 0
-    assert h.duration_ms == 30
+    assert h.duration_ms == 65
 
 
 def test_mapper_kick_stronger_than_beat():
@@ -124,7 +126,7 @@ def test_mapper_kick_stronger_than_beat():
     beat = _make_event(1.0, "beat", 0.5)
     kick = _make_event(2.0, "kick", 0.5)
 
-    timeline = mapper.map_events([beat, kick], duration_seconds=10.0)
+    timeline, _ = mapper.map_events([beat, kick], duration_seconds=10.0)
     beat_h = next(e for e in timeline.events if e.type == "beat")
     kick_h = next(e for e in timeline.events if e.type == "kick")
 
@@ -137,7 +139,7 @@ def test_mapper_bass_stronger_than_beat():
     beat = _make_event(1.0, "beat", 0.5)
     bass = _make_event(2.0, "bass", 0.5)
 
-    timeline = mapper.map_events([beat, bass], duration_seconds=10.0)
+    timeline, _ = mapper.map_events([beat, bass], duration_seconds=10.0)
     beat_h = next(e for e in timeline.events if e.type == "beat")
     bass_h = next(e for e in timeline.events if e.type == "bass")
 
@@ -150,7 +152,7 @@ def test_mapper_hihat_sharp():
     hihat = _make_event(1.0, "hihat", 0.5)
     kick = _make_event(2.0, "kick", 0.5)
 
-    timeline = mapper.map_events([hihat, kick], duration_seconds=10.0)
+    timeline, _ = mapper.map_events([hihat, kick], duration_seconds=10.0)
     hihat_h = next(e for e in timeline.events if e.type == "hihat")
     kick_h = next(e for e in timeline.events if e.type == "kick")
 
@@ -162,10 +164,10 @@ def test_mapper_subbass_long():
     mapper = HapticMapper()
     sub = _make_event(1.0, "subbass", 0.5)
 
-    timeline = mapper.map_events([sub], duration_seconds=10.0)
+    timeline, _ = mapper.map_events([sub], duration_seconds=10.0)
     sub_h = timeline.events[0]
 
-    assert sub_h.duration_ms == 110
+    assert sub_h.duration_ms == 170
     assert sub_h.intensity > 0
 
 
@@ -174,7 +176,7 @@ def test_mapper_strength_scales_intensity():
     weak = _make_event(1.0, "kick", 0.2)
     strong = _make_event(2.0, "kick", 0.9)
 
-    timeline = mapper.map_events([weak, strong], duration_seconds=10.0)
+    timeline, _ = mapper.map_events([weak, strong], duration_seconds=10.0)
     weak_h = timeline.events[0]
     strong_h = timeline.events[1]
 
@@ -186,13 +188,13 @@ def test_mapper_master_intensity_scales():
     mapper = HapticMapper(config=cfg)
     kick = _make_event(1.0, "kick", 0.5)
 
-    timeline = mapper.map_events([kick], duration_seconds=10.0)
+    timeline, _ = mapper.map_events([kick], duration_seconds=10.0)
     h = timeline.events[0]
 
     # With master 0.5, intensity should be roughly halved
     full_cfg = HapticConfig()
     full_mapper = HapticMapper(config=full_cfg)
-    full_timeline = full_mapper.map_events([kick], duration_seconds=10.0)
+    full_timeline, _ = full_mapper.map_events([kick], duration_seconds=10.0)
     full_h = full_timeline.events[0]
 
     assert h.intensity < full_h.intensity
@@ -200,7 +202,7 @@ def test_mapper_master_intensity_scales():
 
 def test_mapper_empty_events():
     mapper = HapticMapper()
-    timeline = mapper.map_events([], duration_seconds=10.0)
+    timeline, _ = mapper.map_events([], duration_seconds=10.0)
     assert len(timeline.events) == 0
     assert timeline.duration_seconds == 10.0
 
@@ -208,7 +210,7 @@ def test_mapper_empty_events():
 def test_mapper_timeline_metadata():
     mapper = HapticMapper(preset_name="test_preset")
     events = [_make_event(1.0, "beat")]
-    timeline = mapper.map_events(events, duration_seconds=120.0)
+    timeline, _ = mapper.map_events(events, duration_seconds=120.0)
 
     assert timeline.version == "0.1"
     assert timeline.config_used == "test_preset"
@@ -227,7 +229,7 @@ def test_collision_simultaneous_events_merge():
         _make_event(1.0, "bass", 0.5),
     ]
 
-    timeline = mapper.map_events(events, duration_seconds=10.0)
+    timeline, _ = mapper.map_events(events, duration_seconds=10.0)
 
     # Should have only 1 event (all merged)
     assert len(timeline.events) == 1
@@ -247,7 +249,7 @@ def test_collision_close_events_merge():
         _make_event(1.010, "kick", 0.5),  # 10ms apart, within 50ms gap
     ]
 
-    timeline = mapper.map_events(events, duration_seconds=10.0)
+    timeline, _ = mapper.map_events(events, duration_seconds=10.0)
     assert len(timeline.events) == 1
     assert timeline.events[0].type == "kick"
 
@@ -261,7 +263,7 @@ def test_collision_distant_events_separate():
         _make_event(1.100, "kick", 0.5),  # 100ms apart
     ]
 
-    timeline = mapper.map_events(events, duration_seconds=10.0)
+    timeline, _ = mapper.map_events(events, duration_seconds=10.0)
     assert len(timeline.events) == 2
 
 
@@ -274,7 +276,7 @@ def test_anticipation_disabled():
     mapper = HapticMapper(config=cfg)
     events = [_make_event(2.0, "beat", 0.5)]
 
-    timeline = mapper.map_events(events, duration_seconds=10.0)
+    timeline, _ = mapper.map_events(events, duration_seconds=10.0)
     anticipations = [e for e in timeline.events if e.is_anticipation]
     assert len(anticipations) == 0
 
@@ -287,7 +289,7 @@ def test_anticipation_generates_cues():
     mapper = HapticMapper(config=cfg)
 
     events = [_make_event(2.0, "beat", 0.5)]
-    timeline = mapper.map_events(events, duration_seconds=10.0)
+    timeline, _ = mapper.map_events(events, duration_seconds=10.0)
 
     anticipations = [e for e in timeline.events if e.is_anticipation]
     assert len(anticipations) == 2
@@ -306,7 +308,7 @@ def test_anticipation_weak():
     mapper = HapticMapper(config=cfg)
 
     events = [_make_event(2.0, "beat", 0.5)]
-    timeline = mapper.map_events(events, duration_seconds=10.0)
+    timeline, _ = mapper.map_events(events, duration_seconds=10.0)
 
     anticipations = [e for e in timeline.events if e.is_anticipation]
     assert len(anticipations) == 1
@@ -323,7 +325,7 @@ def test_anticipation_before_kick():
     mapper = HapticMapper(config=cfg)
 
     events = [_make_event(3.0, "kick", 0.7)]
-    timeline = mapper.map_events(events, duration_seconds=10.0)
+    timeline, _ = mapper.map_events(events, duration_seconds=10.0)
 
     anticipations = [e for e in timeline.events if e.is_anticipation]
     assert len(anticipations) == 1
@@ -339,7 +341,7 @@ def test_anticipation_skips_negative_time():
 
     # Beat at 0.2s, anticipation at -0.3s should be skipped
     events = [_make_event(0.2, "beat", 0.5)]
-    timeline = mapper.map_events(events, duration_seconds=10.0)
+    timeline, _ = mapper.map_events(events, duration_seconds=10.0)
 
     anticipations = [e for e in timeline.events if e.is_anticipation]
     assert len(anticipations) == 0
@@ -353,7 +355,7 @@ def test_anticipation_master_intensity_scales():
     mapper = HapticMapper(config=cfg)
 
     events = [_make_event(2.0, "beat", 0.5)]
-    timeline = mapper.map_events(events, duration_seconds=10.0)
+    timeline, _ = mapper.map_events(events, duration_seconds=10.0)
 
     anticipations = [e for e in timeline.events if e.is_anticipation]
     assert len(anticipations) == 1
@@ -371,7 +373,7 @@ def test_rate_limiting_enforces_gap():
         _make_event(1.030, "hihat", 0.5),  # 30ms apart
     ]
 
-    timeline = mapper.map_events(events, duration_seconds=10.0)
+    timeline, _ = mapper.map_events(events, duration_seconds=10.0)
     # Only one should survive
     assert len(timeline.events) == 1
 
@@ -384,7 +386,7 @@ def test_rate_limiting_keeps_priority():
         _make_event(1.030, "kick", 0.5),  # 30ms apart
     ]
 
-    timeline = mapper.map_events(events, duration_seconds=10.0)
+    timeline, _ = mapper.map_events(events, duration_seconds=10.0)
     assert len(timeline.events) == 1
     assert timeline.events[0].type == "kick"  # Higher priority
 
@@ -398,7 +400,7 @@ def test_rate_limiting_anticipation_suppressed():
 
     # Beat at 2.0, anticipation at 1.97 (30ms before)
     events = [_make_event(2.0, "beat", 0.5)]
-    timeline = mapper.map_events(events, duration_seconds=10.0)
+    timeline, _ = mapper.map_events(events, duration_seconds=10.0)
 
     # The anticipation at 1.97 should be suppressed (too close to beat at 2.0)
     anticipations = [e for e in timeline.events if e.is_anticipation]
@@ -419,7 +421,7 @@ def test_priority_kick_over_beat():
         _make_event(1.0, "kick", 0.5),
     ]
 
-    timeline = mapper.map_events(events, duration_seconds=10.0)
+    timeline, _ = mapper.map_events(events, duration_seconds=10.0)
     assert len(timeline.events) == 1
     assert timeline.events[0].type == "kick"
 
@@ -432,7 +434,7 @@ def test_priority_bass_over_beat():
         _make_event(1.0, "bass", 0.5),
     ]
 
-    timeline = mapper.map_events(events, duration_seconds=10.0)
+    timeline, _ = mapper.map_events(events, duration_seconds=10.0)
     assert len(timeline.events) == 1
     assert timeline.events[0].type == "bass"
 
@@ -445,7 +447,7 @@ def test_priority_subbass_over_bass():
         _make_event(1.0, "subbass", 0.5),
     ]
 
-    timeline = mapper.map_events(events, duration_seconds=10.0)
+    timeline, _ = mapper.map_events(events, duration_seconds=10.0)
     assert len(timeline.events) == 1
     assert timeline.events[0].type == "subbass"
 
@@ -462,8 +464,8 @@ def test_deterministic_output():
         _make_event(2.0, "bass", 0.6),
     ]
 
-    t1 = mapper.map_events(events, duration_seconds=10.0)
-    t2 = mapper.map_events(events, duration_seconds=10.0)
+    t1, _ = mapper.map_events(events, duration_seconds=10.0)
+    t2, _ = mapper.map_events(events, duration_seconds=10.0)
 
     assert len(t1.events) == len(t2.events)
     for e1, e2 in zip(t1.events, t2.events):

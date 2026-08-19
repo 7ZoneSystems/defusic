@@ -20,6 +20,7 @@ class EventType(str, Enum):
     BASS_OFFBEAT = "bass_offbeat"
     BASS_ACCENT = "bass_accent"
     BASS_ACTIVITY = "bass_activity"
+    SUBBASS_ACTIVITY = "subbass_activity"
 
 
 class DrumEventType(str, Enum):
@@ -149,3 +150,51 @@ class HapticConfigUpdate(BaseModel):
     anticipation_enabled: Optional[bool] = None
     minimum_gap_ms: Optional[int] = Field(default=None, ge=0)
     master_intensity: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    # Adaptive haptic scaling
+    adaptive_enabled: Optional[bool] = None
+    adaptive_gain_strength: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+
+
+# --- Loudness models ---
+
+
+class LoudnessCurvePoint(BaseModel):
+    """A single point on the loudness visualization curve."""
+
+    time: float = Field(description="Time in seconds")
+    short_term_lufs: float = Field(description="Short-term loudness in LUFS")
+
+
+class LoudnessData(BaseModel):
+    """Complete loudness profile for a track.
+
+    Uses ITU-R BS.1770-style measurement.
+    """
+
+    integrated_lufs: float = Field(description="Integrated loudness (LUFS)")
+    true_peak_dbtp: float = Field(description="True peak (dBTP)")
+
+    short_term_p10: float = Field(description="10th percentile of short-term loudness")
+    short_term_p50: float = Field(description="50th percentile (median) of short-term loudness")
+    short_term_p90: float = Field(description="90th percentile of short-term loudness")
+
+    momentary_max: float = Field(description="Maximum momentary loudness")
+
+    curve: list[LoudnessCurvePoint] = Field(
+        default_factory=list,
+        description="Downsampled loudness curve for visualization",
+    )
+
+
+class AdaptiveDebugEvent(BaseModel):
+    """Debug info for a single haptic event after adaptive scaling."""
+
+    time: float
+    type: str
+    base_intensity: float
+    adaptive_gain: float
+    final_intensity: float
+    base_duration_ms: int
+    duration_gain: float
+    final_duration_ms: int
+    local_short_term_lufs: float

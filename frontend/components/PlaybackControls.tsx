@@ -1,14 +1,16 @@
 'use client';
 
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Play, Pause, SkipBack } from 'lucide-react';
 import { getClickTrackUrl, getOriginalAudioUrl } from '@/lib/api';
+import { HapticController } from '@/lib/haptic-controller';
 
 interface PlaybackControlsProps {
   jobId: string;
   duration: number;
   currentTime: number;
   onTimeUpdate: (time: number) => void;
+  hapticController?: HapticController | null;
 }
 
 type TrackMode = 'original' | 'beats' | 'multi';
@@ -18,22 +20,29 @@ export default function PlaybackControls({
   duration,
   currentTime,
   onTimeUpdate,
+  hapticController,
 }: PlaybackControlsProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [mode, setMode] = useState<TrackMode>('beats');
+  const initializedRef = useRef(false);
 
   const audioSrc = useMemo(() => {
     if (mode === 'original') return getOriginalAudioUrl(jobId);
     return getClickTrackUrl(jobId, mode === 'multi');
   }, [jobId, mode]);
 
+  // Set audio source on mount or mode change
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio || !audioSrc) return;
-    audio.src = audioSrc;
+    if (!initializedRef.current) {
+      audio.src = audioSrc;
+      initializedRef.current = true;
+    }
   }, [audioSrc]);
 
+  // Time updates
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -42,37 +51,109 @@ export default function PlaybackControls({
     return () => audio.removeEventListener('timeupdate', handler);
   }, [onTimeUpdate]);
 
-  const togglePlay = () => {
+  // Audio event bridge to haptic controller
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || !hapticController) return;
+
+    const handlePlay = () => {
+      setPlaying(true);
+      hapticController.play(audio.currentTime, () => audio.currentTime);
+    };
+
+    const handlePause = () => {
+      setPlaying(false);
+      hapticController.pause();
+    };
+
+    const handleEnded = () => {
+      setPlaying(false);
+      hapticController.stop();
+    };
+
+    const handleSeeking = () => {
+      hapticController.pause();
+    };
+
+    const handleSeeked = () => {
+      if (!audio.paused) {
+        hapticController.seek(audio.currentTime);
+        hapticController.play(audio.currentTime, () => audio.currentTime);
+      } else {
+        hapticController.seek(audio.currentTime);
+      }
+    };
+
+    const handleWaiting = () => {
+      hapticController.pause();
+    };
+
+    const handleStalled = () => {
+      hapticController.pause();
+    };
+
+    const handleError = () => {
+      setPlaying(false);
+      hapticController.stop();
+    };
+
+    audio.addEventListener('play', handlePlay);
+    audio.addEventListener('pause', handlePause);
+    audio.addEventListener('ended', handleEnded);
+    audio.addEventListener('seeking', handleSeeking);
+    audio.addEventListener('seeked', handleSeeked);
+    audio.addEventListener('waiting', handleWaiting);
+    audio.addEventListener('stalled', handleStalled);
+    audio.addEventListener('error', handleError);
+
+    return () => {
+      audio.removeEventListener('play', handlePlay);
+      audio.removeEventListener('pause', handlePause);
+      audio.removeEventListener('ended', handleEnded);
+      audio.removeEventListener('seeking', handleSeeking);
+      audio.removeEventListener('seeked', handleSeeked);
+      audio.removeEventListener('waiting', handleWaiting);
+      audio.removeEventListener('stalled', handleStalled);
+      audio.removeEventListener('error', handleError);
+    };
+  }, [hapticController]);
+
+  const togglePlay = useCallback(() => {
     const audio = audioRef.current;
     if (!audio || !audioSrc) return;
-    if (playing) {
-      audio.pause();
-    } else {
-      audio.load();
-      audio.play();
-    }
-    setPlaying(!playing);
-  };
 
-  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (audio.paused) {
+      audio.play().catch(() => {
+        setPlaying(false);
+      });
+    } else {
+      audio.pause();
+    }
+  }, [audioSrc]);
+
+  const handleSeek = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const time = parseFloat(e.target.value);
     onTimeUpdate(time);
-    if (audioRef.current && audioSrc) {
+    if (audioRef.current) {
       audioRef.current.currentTime = time;
     }
-  };
+  }, [onTimeUpdate]);
 
-  const handleRestart = () => {
+  const handleRestart = useCallback(() => {
     onTimeUpdate(0);
-    if (audioRef.current && audioSrc) {
+    if (audioRef.current) {
       audioRef.current.currentTime = 0;
     }
-  };
+  }, [onTimeUpdate]);
 
-  const handleModeChange = (newMode: TrackMode) => {
+  const handleModeChange = useCallback((newMode: TrackMode) => {
+    const audio = audioRef.current;
+    if (audio && !audio.paused) {
+      audio.pause();
+    }
     setMode(newMode);
-    setPlaying(false);
-  };
+    initializedRef.current = false;
+  }, []);
 
   const formatTime = (t: number) => {
     const m = Math.floor(t / 60);

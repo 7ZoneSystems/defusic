@@ -312,6 +312,10 @@ class BassAnalyzer:
                 bass_avg = float(np.mean(bass_energy[event_start_idx:event_end_idx]))
                 lowmid_avg = float(np.mean(lowmid_energy[event_start_idx:event_end_idx]))
 
+                # Classify: subbass_activity if sub-band dominates, else bass_activity
+                is_subbass_dominant = sub_avg > bass_avg and sub_avg > lowmid_avg
+                event_type = "subbass_activity" if is_subbass_dominant else "bass_activity"
+
                 events.append({
                     "time": mid_time,
                     "strength": float(np.clip(float(energy_relative[peak_idx]), 0.0, 1.0)),
@@ -321,6 +325,7 @@ class BassAnalyzer:
                     "onset_strength": 0.0,
                     "frame_index": int(peak_idx),
                     "event_kind": "activity",
+                    "event_type": event_type,
                     "start_time": float(frame_times[event_start_idx]),
                     "end_time": float(frame_times[min(event_end_idx, min_len - 1)]),
                     "subbass_energy": sub_avg,
@@ -348,6 +353,9 @@ class BassAnalyzer:
                 bass_avg = float(np.mean(bass_energy[event_start_idx:event_end_idx]))
                 lowmid_avg = float(np.mean(lowmid_energy[event_start_idx:event_end_idx]))
 
+                is_subbass_dominant = sub_avg > bass_avg and sub_avg > lowmid_avg
+                event_type = "subbass_activity" if is_subbass_dominant else "bass_activity"
+
                 events.append({
                     "time": mid_time,
                     "strength": float(np.clip(float(energy_relative[peak_idx]), 0.0, 1.0)),
@@ -357,6 +365,7 @@ class BassAnalyzer:
                     "onset_strength": 0.0,
                     "frame_index": int(peak_idx),
                     "event_kind": "activity",
+                    "event_type": event_type,
                     "start_time": float(frame_times[event_start_idx]),
                     "end_time": float(frame_times[min(event_end_idx - 1, min_len - 1)]),
                     "subbass_energy": sub_avg,

@@ -16,7 +16,15 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from hearbeat.config import API_HOST, API_PORT, MAX_UPLOAD_MB, OUTPUT_DIR
 from hearbeat.haptic_config import HapticConfig, get_preset, list_presets
 from hearbeat.haptic_mapper import HapticMapper
-from hearbeat.models import AnalysisJob, AnalysisResult, HapticConfigUpdate, HapticTimelineModel
+from hearbeat.models import (
+    AdaptiveDebugEvent,
+    AnalysisJob,
+    AnalysisResult,
+    HapticConfigUpdate,
+    HapticTimelineModel,
+    LoudnessCurvePoint,
+    LoudnessData,
+)
 from hearbeat.pipeline import analyze_file
 
 logger = logging.getLogger(__name__)
@@ -351,6 +359,58 @@ def get_presets() -> JSONResponse:
     return JSONResponse(content={"presets": list_presets()})
 
 
+@app.get("/analysis/{job_id}/loudness")
+def get_loudness_profile(job_id: str) -> JSONResponse:
+    """Get the loudness profile for a completed analysis.
+
+    Computes ITU-R BS.1770-style loudness if not already cached.
+    """
+    job = _jobs.get(job_id)
+    if not job:
+        raise HTTPException(404, f"Job not found: {job_id}")
+    if job.status != "completed" or not job.result:
+        raise HTTPException(400, "Analysis not completed yet")
+
+    # Check if loudness was already computed and cached in metadata
+    cached = job.result.metadata.get("loudness")
+    if cached:
+        return JSONResponse(content=cached)
+
+    # Compute from original audio
+    audio_path = _upload_files.get(job_id)
+    if not audio_path or not audio_path.exists():
+        raise HTTPException(404, "Original audio not available for loudness analysis")
+
+    import soundfile as sf
+    from hearbeat.adaptive_haptics import measure_loudness, AdaptiveConfig
+
+    audio, sr = sf.read(str(audio_path), dtype="float32")
+    if audio.ndim > 1:
+        audio = audio.mean(axis=1)
+
+    profile = measure_loudness(audio, sr, AdaptiveConfig())
+
+    loudness_data = LoudnessData(
+        integrated_lufs=round(profile.integrated_lufs, 1),
+        true_peak_dbtp=round(profile.true_peak_dbtp, 1),
+        short_term_p10=round(profile.short_term_p10, 1),
+        short_term_p50=round(profile.short_term_p50, 1),
+        short_term_p90=round(profile.short_term_p90, 1),
+        momentary_max=round(profile.momentary_max, 1),
+        curve=[
+            LoudnessCurvePoint(time=p["time"], short_term_lufs=p["short_term_lufs"])
+            for p in profile.short_term_curve
+        ],
+    )
+
+    result_dict = loudness_data.model_dump()
+
+    # Cache in metadata
+    job.result.metadata["loudness"] = result_dict
+
+    return JSONResponse(content=result_dict)
+
+
 @app.post("/analysis/{job_id}/haptic")
 def generate_haptic_timeline(
     job_id: str,
@@ -359,6 +419,7 @@ def generate_haptic_timeline(
     """Generate a haptic timeline from an analysis result.
 
     Accepts optional haptic configuration overrides.
+    Supports adaptive loudness scaling when enabled.
     """
     job = _jobs.get(job_id)
     if not job:
@@ -380,10 +441,91 @@ def generate_haptic_timeline(
     if config_update:
         _apply_config_overrides(haptic_config, config_update)
 
-    mapper = HapticMapper(config=haptic_config, preset_name=preset_name)
-    timeline = mapper.map_events(result.events, result.source.duration_seconds)
+    # Determine adaptive settings
+    adaptive_enabled = haptic_config.adaptive_enabled
+    adaptive_gain_strength = haptic_config.adaptive_gain_strength
+    if config_update:
+        if config_update.adaptive_enabled is not None:
+            adaptive_enabled = config_update.adaptive_enabled
+        if config_update.adaptive_gain_strength is not None:
+            adaptive_gain_strength = config_update.adaptive_gain_strength
 
-    return JSONResponse(content=timeline.to_dict())
+    # Compute or retrieve loudness profile
+    loudness_profile = None
+    if adaptive_enabled:
+        loudness_profile = _get_or_compute_loudness(job_id, result)
+
+    mapper = HapticMapper(config=haptic_config, preset_name=preset_name)
+    timeline, adaptive_debug = mapper.map_events(
+        result.events,
+        result.source.duration_seconds,
+        loudness_profile=loudness_profile,
+        adaptive_enabled=adaptive_enabled,
+        adaptive_gain_strength=adaptive_gain_strength,
+    )
+
+    response = timeline.to_dict()
+    if adaptive_debug:
+        response["adaptive_debug"] = adaptive_debug
+    if loudness_profile:
+        from hearbeat.adaptive_haptics import LoudnessProfile as LP
+        response["loudness"] = {
+            "integrated_lufs": round(loudness_profile.integrated_lufs, 1),
+            "true_peak_dbtp": round(loudness_profile.true_peak_dbtp, 1),
+            "short_term_p10": round(loudness_profile.short_term_p10, 1),
+            "short_term_p50": round(loudness_profile.short_term_p50, 1),
+            "short_term_p90": round(loudness_profile.short_term_p90, 1),
+        }
+
+    return JSONResponse(content=response)
+
+
+def _get_or_compute_loudness(job_id: str, result: AnalysisResult) -> object:
+    """Get cached loudness profile or compute from audio."""
+    # Check metadata cache first
+    cached = result.metadata.get("loudness")
+    if cached:
+        from hearbeat.adaptive_haptics import LoudnessProfile
+        profile = LoudnessProfile(
+            integrated_lufs=cached.get("integrated_lufs", -70.0),
+            true_peak_dbtp=cached.get("true_peak_dbtp", -70.0),
+            short_term_p10=cached.get("short_term_p10", -70.0),
+            short_term_p50=cached.get("short_term_p50", -70.0),
+            short_term_p90=cached.get("short_term_p90", -70.0),
+            momentary_max=cached.get("momentary_max", -70.0),
+            short_term_curve=[
+                {"time": p["time"], "short_term_lufs": p["short_term_lufs"]}
+                for p in cached.get("curve", [])
+            ],
+        )
+        return profile
+
+    # Compute from audio
+    audio_path = _upload_files.get(job_id)
+    if not audio_path or not audio_path.exists():
+        return None
+
+    import soundfile as sf
+    from hearbeat.adaptive_haptics import measure_loudness, AdaptiveConfig
+
+    audio, sr = sf.read(str(audio_path), dtype="float32")
+    if audio.ndim > 1:
+        audio = audio.mean(axis=1)
+
+    profile = measure_loudness(audio, sr, AdaptiveConfig())
+
+    # Cache in metadata
+    result.metadata["loudness"] = {
+        "integrated_lufs": round(profile.integrated_lufs, 1),
+        "true_peak_dbtp": round(profile.true_peak_dbtp, 1),
+        "short_term_p10": round(profile.short_term_p10, 1),
+        "short_term_p50": round(profile.short_term_p50, 1),
+        "short_term_p90": round(profile.short_term_p90, 1),
+        "momentary_max": round(profile.momentary_max, 1),
+        "curve": profile.short_term_curve,
+    }
+
+    return profile
 
 
 def _apply_config_overrides(config: HapticConfig, update: HapticConfigUpdate) -> None:
@@ -418,6 +560,10 @@ def _apply_config_overrides(config: HapticConfig, update: HapticConfigUpdate) ->
         config.minimum_gap_ms = update.minimum_gap_ms
     if update.master_intensity is not None:
         config.master_intensity = update.master_intensity
+    if update.adaptive_enabled is not None:
+        config.adaptive_enabled = update.adaptive_enabled
+    if update.adaptive_gain_strength is not None:
+        config.adaptive_gain_strength = update.adaptive_gain_strength
 
 
 def run_server() -> None:
