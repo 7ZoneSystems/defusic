@@ -29,9 +29,8 @@ class DrumAnalyzer:
             return
         try:
             import essentia.standard as es
-            self._onset_detection = es.OnsetDetection(method="hfc")
-            self._onsets = es.Onsets()
-            logger.info("Loaded Essentia OnsetDetection (HFC) + Onsets")
+            self._onset_detection = True
+            logger.info("Essentia available for drum analysis")
         except ImportError as e:
             raise DrumAnalysisError(
                 "Essentia is required for drum analysis. "
@@ -115,35 +114,36 @@ class DrumAnalyzer:
         }
 
     def _detect_onsets(self, audio: np.ndarray, sr: int) -> tuple[np.ndarray, np.ndarray]:
-        """Detect onsets using Essentia HFC."""
+        """Detect onsets using Essentia HFC or librosa fallback."""
+        try:
+            return self._detect_onsets_essentia(audio, sr)
+        except Exception as e:
+            logger.warning("Essentia onset detection failed, using librosa: %s", e)
+            return self._detect_onsets_librosa(audio, sr)
+
+    def _detect_onsets_essentia(self, audio: np.ndarray, sr: int) -> tuple[np.ndarray, np.ndarray]:
+        """Detect onsets using Essentia (algorithmic API)."""
         import essentia.standard as es
 
-        # Compute onset detection function
-        od = self._onset_detection
-
-        # Essentia OnsetDetection works frame-by-frame in streaming mode,
-        # but we can use the algorithmic approach with Onsets
-        # First compute spectral complexity
-        pool = es.Info(output_empty=True)
-        spectral = es.SpectralPeaks(
-            frequencyDistribution="uniform",
-            sampleRate=sr,
-        )
-        hfc = es.OnsetDetection(method="hfc", sampleRate=sr)
-
-        # Frame-by-frame onset detection
         frame_size = 2048
         hop_size = 512
+
+        spectral = es.SpectralPeaks(
+            sampleRate=sr,
+            maxPeaks=60,
+            magnitudeThreshold=0.0001,
+        )
+        hfc = es.OnsetDetection(method="hfc", sampleRate=sr)
+        onsets_algo = es.Onsets()
 
         spec_mags = []
         spec_freqs = []
 
-        import essentia
-
         for frame in es.FrameGenerator(audio, frameSize=frame_size, hopSize=hop_size):
             freqs, mags = spectral(frame)
-            spec_mags.append(mags)
-            spec_freqs.append(freqs)
+            if len(mags) > 0:
+                spec_mags.append(mags)
+                spec_freqs.append(freqs)
 
         if not spec_mags:
             return np.array([]), np.array([])
@@ -151,23 +151,26 @@ class DrumAnalyzer:
         # Compute HFC onset detection function
         onset_od = []
         for mags, freqs in zip(spec_mags, spec_freqs):
-            od_val = hfc(mags, freqs)
-            onset_od.append(od_val)
+            try:
+                od_val = hfc(mags, freqs)
+                onset_od.append(od_val)
+            except Exception:
+                onset_od.append(0.0)
 
         onset_od = np.array(onset_od)
 
-        if len(onset_od) == 0:
+        if len(onset_od) == 0 or np.all(onset_od == 0):
             return np.array([]), np.array([])
 
-        # Peak picking using Onsets algorithm
-        onsets = self._onsets(onset_od, 1.0)
+        # Peak picking via Onsets algorithm
+        onsets_raw = onsets_algo(onset_od, 1.0)
 
-        if len(onsets) == 0:
+        if len(onsets_raw) == 0:
             return np.array([]), np.array([])
 
         # Convert frame indices to seconds
         hop_sec = hop_size / sr
-        onset_times = np.array(onsets) * hop_sec
+        onset_times = np.array(onsets_raw) * hop_sec
 
         # Get onset strengths at detected times
         onset_frame_idx = np.clip(
@@ -180,6 +183,33 @@ class DrumAnalyzer:
             strengths = strengths_raw / strengths_raw.max()
         else:
             strengths = np.zeros_like(strengths_raw)
+
+        return onset_times, strengths
+
+    def _detect_onsets_librosa(self, audio: np.ndarray, sr: int) -> tuple[np.ndarray, np.ndarray]:
+        """Fallback onset detection using librosa."""
+        import librosa
+
+        onset_env = librosa.onset.onset_strength(
+            y=audio.astype(np.float32), sr=sr, hop_length=512
+        )
+        onset_frames = librosa.onset.onset_detect(
+            y=audio.astype(np.float32), sr=sr, hop_length=512, onset_envelope=onset_env
+        )
+
+        if len(onset_frames) == 0:
+            return np.array([]), np.array([])
+
+        onset_times = librosa.frames_to_time(onset_frames, sr=sr, hop_length=512)
+
+        # Get strengths at onset frames
+        strengths = np.zeros(len(onset_frames))
+        for i, frame in enumerate(onset_frames):
+            if frame < len(onset_env):
+                strengths[i] = onset_env[frame]
+
+        if strengths.max() > 0:
+            strengths = strengths / strengths.max()
 
         return onset_times, strengths
 
