@@ -185,7 +185,7 @@ export default function PlaybackControls({
               onClick={() => handleModeChange(m.value)}
               className="px-2 py-1 text-xs"
               style={{
-                background: mode === m.value ? 'var(--bg-elevated)' : 'var(--bg-panel)',
+                background: mode === m.value ? 'var(--bg-elevated)' : 'var(--bg-surface)',
                 color: mode === m.value ? 'var(--text-primary)' : 'var(--text-muted)',
                 fontFamily: 'var(--font-geist-mono)',
               }}

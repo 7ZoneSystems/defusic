@@ -19,12 +19,12 @@ const FILTERS: { label: string; value: string }[] = [
 ];
 
 const TYPE_COLORS: Record<string, string> = {
-  beat: 'var(--beat-color)',
+  beat: 'var(--event-beat)',
   bass: 'var(--text-muted)',
-  bass_beat: 'var(--bass-beat-color)',
-  bass_offbeat: 'var(--bass-offbeat-color)',
-  bass_accent: 'var(--bass-accent-color)',
-  bass_activity: '#6A8ECE',
+  bass_beat: 'var(--event-bass)',
+  bass_offbeat: 'var(--event-bass-offbeat)',
+  bass_accent: 'var(--event-bass-accent)',
+  bass_activity: 'var(--event-bass-activity)',
 };
 
 export default function EventInspector({ events }: EventInspectorProps) {
@@ -62,7 +62,7 @@ export default function EventInspector({ events }: EventInspectorProps) {
               onClick={() => { setFilter(f.value); setPage(0); }}
               className="px-2 py-1 text-xs"
               style={{
-                background: filter === f.value ? 'var(--bg-elevated)' : 'var(--bg-panel)',
+                background: filter === f.value ? 'var(--bg-elevated)' : 'var(--bg-surface)',
                 color: filter === f.value ? 'var(--text-primary)' : 'var(--text-muted)',
                 fontFamily: 'var(--font-geist-mono)',
               }}
@@ -81,7 +81,7 @@ export default function EventInspector({ events }: EventInspectorProps) {
                 <th
                   key={h}
                   className="px-3 py-1.5 text-left font-medium"
-                  style={{ color: 'var(--text-muted)', background: 'var(--bg-panel)' }}
+                  style={{ color: 'var(--text-muted)', background: 'var(--bg-surface)' }}
                 >
                   {h}
                 </th>

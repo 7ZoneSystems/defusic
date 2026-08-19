@@ -17,12 +17,12 @@ const FILTERS = [
 ];
 
 const TYPE_COLORS: Record<string, string> = {
-  kick: 'var(--kick-color)',
-  snare: 'var(--snare-color)',
-  hihat: 'var(--hihat-color)',
-  drum_onset: 'var(--drum-onset-color)',
-  cymbal: 'var(--hihat-color)',
-  percussion: 'var(--drum-onset-color)',
+  kick: 'var(--event-kick)',
+  snare: 'var(--event-snare)',
+  hihat: 'var(--event-hihat)',
+  drum_onset: 'var(--event-drum-onset)',
+  cymbal: 'var(--event-hihat)',
+  percussion: 'var(--event-drum-onset)',
 };
 
 export default function DrumEventInspector({ events }: DrumEventInspectorProps) {
@@ -63,7 +63,7 @@ export default function DrumEventInspector({ events }: DrumEventInspectorProps) 
               onClick={() => { setFilter(f.value); setPage(0); }}
               className="px-2 py-1 text-xs"
               style={{
-                background: filter === f.value ? 'var(--bg-elevated)' : 'var(--bg-panel)',
+                background: filter === f.value ? 'var(--bg-elevated)' : 'var(--bg-surface)',
                 color: filter === f.value ? 'var(--text-primary)' : 'var(--text-muted)',
                 fontFamily: 'var(--font-geist-mono)',
               }}
@@ -82,7 +82,7 @@ export default function DrumEventInspector({ events }: DrumEventInspectorProps) 
                 <th
                   key={h}
                   className="px-3 py-1.5 text-left font-medium"
-                  style={{ color: 'var(--text-muted)', background: 'var(--bg-panel)' }}
+                  style={{ color: 'var(--text-muted)', background: 'var(--bg-surface)' }}
                 >
                   {h}
                 </th>

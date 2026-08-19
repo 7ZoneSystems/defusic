@@ -41,7 +41,7 @@ export default function ModeSelector({ selected, onSelect, disabled }: ModeSelec
             disabled={disabled}
             className="flex-1 flex items-center gap-3 px-4 py-3 text-left transition-colors disabled:opacity-50"
             style={{
-              background: selected === mode.value ? 'var(--accent-dim)' : 'var(--bg-panel)',
+              background: selected === mode.value ? 'var(--accent-dim)' : 'var(--bg-surface)',
               color: selected === mode.value ? 'var(--text-primary)' : 'var(--text-secondary)',
               border: `1px solid ${selected === mode.value ? 'var(--accent)' : 'var(--border)'}`,
               borderRadius: '2px',

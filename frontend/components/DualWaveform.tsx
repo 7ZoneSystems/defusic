@@ -2,6 +2,7 @@
 
 import { useRef, useEffect, useCallback, useState } from 'react';
 import { WaveformData } from '@/lib/types';
+import { resolveToken, resolveTokenAlpha } from '@/lib/theme-utils';
 
 interface DualWaveformProps {
   originalData: WaveformData | null;
@@ -34,6 +35,15 @@ export default function DualWaveform({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    // Resolve theme tokens at draw time
+    const bgSurface = resolveToken('--bg-surface');
+    const bgPrimary = resolveToken('--bg-primary');
+    const textMuted = resolveToken('--text-muted');
+    const textSecondary = resolveToken('--text-secondary');
+    const textPrimary = resolveToken('--text-primary');
+    const eventBeat = resolveToken('--event-beat');
+    const eventBass = resolveToken('--event-bass');
+
     const dpr = window.devicePixelRatio || 1;
     const rect = container.getBoundingClientRect();
     const w = rect.width;
@@ -48,14 +58,14 @@ export default function DualWaveform({
     ctx.scale(dpr, dpr);
 
     // Background
-    ctx.fillStyle = '#111418';
+    ctx.fillStyle = bgSurface;
     ctx.fillRect(0, 0, w, totalH);
 
     // Draw original waveform (top track)
     if (originalData && originalData.waveform.length > 0) {
-      drawWaveform(ctx, originalData.waveform, w, trackH, 0, '#4A9ECE', originalVolume);
+      drawWaveform(ctx, originalData.waveform, w, trackH, 0, eventBeat, originalVolume);
       // Label
-      ctx.fillStyle = '#6E7681';
+      ctx.fillStyle = textMuted;
       ctx.font = '9px var(--font-geist-mono), monospace';
       ctx.textAlign = 'left';
       ctx.fillText('ORIGINAL', 4, 12);
@@ -63,18 +73,18 @@ export default function DualWaveform({
 
     // Draw diagnostic waveform (bottom track)
     if (diagnosticData && diagnosticData.length > 0) {
-      drawWaveform(ctx, diagnosticData, w, trackH, trackH + gap, '#CE6A4A', diagnosticVolume);
+      drawWaveform(ctx, diagnosticData, w, trackH, trackH + gap, eventBass, diagnosticVolume);
       // Label
-      ctx.fillStyle = '#6E7681';
+      ctx.fillStyle = textMuted;
       ctx.font = '9px var(--font-geist-mono), monospace';
       ctx.textAlign = 'left';
       ctx.fillText('GENERATED', 4, trackH + gap + 12);
     }
 
     // Time ruler
-    ctx.fillStyle = '#0B0D0F';
+    ctx.fillStyle = bgPrimary;
     ctx.fillRect(0, totalH - 16, w, 16);
-    ctx.fillStyle = '#6E7681';
+    ctx.fillStyle = textMuted;
     ctx.font = '9px var(--font-geist-mono), monospace';
     ctx.textAlign = 'center';
     const numLabels = Math.min(10, Math.max(3, Math.floor(w / 80)));
@@ -86,7 +96,7 @@ export default function DualWaveform({
 
     // Playhead cursor
     const playX = duration > 0 ? (currentTime / duration) * w : 0;
-    ctx.strokeStyle = '#E7E9EC';
+    ctx.strokeStyle = textPrimary;
     ctx.lineWidth = 1;
     ctx.setLineDash([3, 3]);
     ctx.beginPath();
@@ -97,7 +107,7 @@ export default function DualWaveform({
 
     // Hover cursor
     if (hoverX !== null) {
-      ctx.strokeStyle = 'rgba(231, 233, 236, 0.3)';
+      ctx.strokeStyle = resolveTokenAlpha('--text-primary', 0.3);
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(hoverX, 0);
@@ -105,7 +115,7 @@ export default function DualWaveform({
       ctx.stroke();
       // Time tooltip
       const hoverTime = (hoverX / w) * duration;
-      ctx.fillStyle = '#9AA2AC';
+      ctx.fillStyle = textSecondary;
       ctx.font = '9px var(--font-geist-mono), monospace';
       ctx.textAlign = 'center';
       ctx.fillText(`${hoverTime.toFixed(3)}s`, hoverX, totalH - 20);

@@ -73,12 +73,12 @@ function PulseBar({ intensity, color }: { intensity: number; color: string }) {
 }
 
 const EVENT_COLORS: Record<string, string> = {
-  beat: 'var(--beat-color)',
-  hihat: 'var(--hihat-color)',
-  kick: 'var(--kick-color)',
-  snare: 'var(--snare-color)',
-  bass: 'var(--bass-beat-color)',
-  subbass: '#6A8ECE',
+  beat: 'var(--event-beat)',
+  hihat: 'var(--event-hihat)',
+  kick: 'var(--event-kick)',
+  snare: 'var(--event-snare)',
+  bass: 'var(--event-bass)',
+  subbass: 'var(--event-subbass-activity)',
 };
 
 export default function HapticPanel({
@@ -150,7 +150,7 @@ export default function HapticPanel({
             className="text-xs px-2 py-0.5"
             style={{
               color: realHardware ? 'var(--success)' : 'var(--text-muted)',
-              background: realHardware ? 'rgba(74, 206, 122, 0.1)' : 'var(--bg-elevated)',
+              background: realHardware ? 'var(--status-success-surface)' : 'var(--bg-elevated)',
               borderRadius: '2px',
               fontFamily: 'var(--font-geist-mono)',
             }}

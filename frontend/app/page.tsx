@@ -428,8 +428,8 @@ export default function Home() {
                 <span
                   className="text-xs px-1.5 py-0.5"
                   style={{
-                    color: isDrumming ? 'var(--hihat-color)' : 'var(--accent)',
-                    border: `1px solid ${isDrumming ? 'var(--hihat-color)' : 'var(--accent)'}`,
+                    color: isDrumming ? 'var(--event-hihat)' : 'var(--accent)',
+                    border: `1px solid ${isDrumming ? 'var(--event-hihat)' : 'var(--accent)'}`,
                     borderRadius: '2px',
                     fontFamily: 'var(--font-geist-mono)',
                   }}
@@ -489,7 +489,7 @@ export default function Home() {
             {result.warnings.length > 0 && (
               <div
                 className="px-4 py-2 flex items-start gap-2"
-                style={{ background: 'rgba(206, 158, 74, 0.08)', borderBottom: '1px solid var(--border)' }}
+                style={{ background: 'color-mix(in srgb, var(--warning) 8%, transparent)', borderBottom: '1px solid var(--border)' }}
               >
                 <AlertTriangle size={12} style={{ color: 'var(--warning)', marginTop: '2px' }} />
                 <div className="flex-1">

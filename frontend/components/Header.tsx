@@ -3,6 +3,7 @@
 import { Activity } from 'lucide-react';
 import { ReactNode } from 'react';
 import { AnalysisMode } from '@/lib/types';
+import ThemeSwitcher from './ThemeSwitcher';
 
 interface HeaderProps {
   status?: 'online' | 'offline' | 'analyzing';
@@ -31,15 +32,15 @@ export default function Header({ status = 'online', mode, children }: HeaderProp
           Music Analysis Engine
         </span>
       </div>
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3">
         {children}
         {mode && (
           <span
             className="text-xs uppercase tracking-wider px-2 py-0.5"
             style={{
-              color: mode === 'drumming' ? 'var(--hihat-color)' : 'var(--accent)',
+              color: mode === 'drumming' ? 'var(--event-hihat)' : 'var(--accent)',
               fontFamily: 'var(--font-geist-mono)',
-              border: `1px solid ${mode === 'drumming' ? 'var(--hihat-color)' : 'var(--accent)'}`,
+              border: `1px solid ${mode === 'drumming' ? 'var(--event-hihat)' : 'var(--accent)'}`,
               borderRadius: '2px',
             }}
           >
@@ -57,6 +58,7 @@ export default function Header({ status = 'online', mode, children }: HeaderProp
         >
           STAGE 2
         </span>
+        <ThemeSwitcher />
         <div className="flex items-center gap-1.5">
           <div
             className="w-1.5 h-1.5 rounded-full"

@@ -9,10 +9,10 @@ interface DrumPatternViewProps {
 }
 
 const DRUM_ROWS = [
-  { type: 'kick', label: 'KICK', color: 'var(--kick-color)' },
-  { type: 'snare', label: 'SNARE', color: 'var(--snare-color)' },
-  { type: 'hihat', label: 'HI-HAT', color: 'var(--hihat-color)' },
-  { type: 'drum_onset', label: 'DRUM', color: 'var(--drum-onset-color)' },
+  { type: 'kick', label: 'KICK', color: 'var(--event-kick)' },
+  { type: 'snare', label: 'SNARE', color: 'var(--event-snare)' },
+  { type: 'hihat', label: 'HI-HAT', color: 'var(--event-hihat)' },
+  { type: 'drum_onset', label: 'DRUM', color: 'var(--event-drum-onset)' },
 ];
 
 const SUBDIVISIONS = 16;
@@ -132,7 +132,7 @@ export default function DrumPatternView({ drumEvents, rhythm }: DrumPatternViewP
                       key={i}
                       className="text-center py-0.5"
                       style={{
-                        background: i % 4 === 0 ? 'var(--bg-panel)' : 'transparent',
+                        background: i % 4 === 0 ? 'var(--bg-surface)' : 'transparent',
                       }}
                     >
                       {hasHit && (

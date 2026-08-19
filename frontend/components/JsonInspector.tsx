@@ -79,7 +79,7 @@ export default function JsonInspector({ result }: JsonInspectorProps) {
           maxHeight: '400px',
           color: 'var(--text-secondary)',
           fontFamily: 'var(--font-geist-mono)',
-          background: 'var(--bg-panel)',
+          background: 'var(--bg-surface)',
         }}
       >
         <code>{jsonString}</code>

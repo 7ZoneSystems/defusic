@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { ThemeProvider } from "@/lib/theme";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -14,17 +15,42 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "HearBeat - Music Analysis Engine",
-  description: "Stage 2: Music Enjoyment + Drumming Analysis",
+  description: "Music analysis engine with haptic feedback for hearing-impaired musicians",
 };
+
+/**
+ * Inline script that runs before first paint to prevent theme flash.
+ * Reads the stored preference and sets data-theme immediately.
+ */
+const themeScript = `
+(function() {
+  try {
+    var pref = localStorage.getItem('hearbeat-theme');
+    var theme = 'dark';
+    if (pref === 'light' || pref === 'dark') {
+      theme = pref;
+    } else if (pref === 'system' || !pref) {
+      theme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+    }
+    document.documentElement.setAttribute('data-theme', theme);
+  } catch(e) {
+    document.documentElement.setAttribute('data-theme', 'dark');
+  }
+})();
+`;
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased dark`}
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      suppressHydrationWarning
     >
-      <body className="min-h-full flex flex-col" style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
-        {children}
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+      </head>
+      <body className="min-h-full flex flex-col">
+        <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>
   );

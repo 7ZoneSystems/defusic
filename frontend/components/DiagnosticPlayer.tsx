@@ -214,7 +214,7 @@ export default function DiagnosticPlayer({
               onClick={() => onLayerToggle(layer.id)}
               className="px-2 py-1 text-xs"
               style={{
-                background: layer.enabled ? `${layer.color}20` : 'var(--bg-panel)',
+                background: layer.enabled ? `${layer.color}20` : 'var(--bg-surface)',
                 color: layer.enabled ? layer.color : 'var(--text-muted)',
                 border: `1px solid ${layer.enabled ? layer.color : 'var(--border)'}`,
                 borderRadius: '2px',
