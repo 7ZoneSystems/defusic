@@ -5,7 +5,7 @@
  * We translate musical meaning into tactile patterns, not frequencies.
  */
 
-import { HapticDriverResult, HapticCapability } from './haptic-types';
+import { HapticDriverResult } from './haptic-types';
 
 export interface HapticDriver {
   /** Check if the driver is available on this device/browser. */

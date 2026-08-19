@@ -4,7 +4,6 @@ import { useState, useCallback } from 'react';
 import { Vibrate, VibrateOff, Play, Square } from 'lucide-react';
 import { HapticConfig, HapticEvent } from '@/lib/haptic-types';
 import { HapticController } from '@/lib/haptic-controller';
-import { DEFAULT_HAPTIC_CONFIG } from '@/lib/haptic-types';
 
 interface HapticPanelProps {
   controller: HapticController | null;

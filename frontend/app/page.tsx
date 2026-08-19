@@ -23,6 +23,15 @@ import { DRUM_LAYERS, MUSIC_LAYERS } from '@/lib/types';
 import { HapticConfig, HapticEvent, HapticTimeline, DEFAULT_HAPTIC_CONFIG } from '@/lib/haptic-types';
 import { HapticController } from '@/lib/haptic-controller';
 import { createHapticDriver } from '@/lib/haptic-driver';
+import { persistFile, restoreFile, clearPersistedFile, getPersistedMeta } from '@/lib/file-persist';
+
+/** Metadata about a selected file that survives in-memory (lightweight). */
+interface SelectedFileMeta {
+  name: string;
+  size: number;
+  type: string;
+  lastModified: number;
+}
 
 export default function Home() {
   const [state, setState] = useState<AppState>('idle');
@@ -30,6 +39,8 @@ export default function Home() {
   const [jobId, setJobId] = useState<string>('');
   const [error, setError] = useState<string>('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedMeta, setSelectedMeta] = useState<SelectedFileMeta | null>(null);
+  const [restoreAttempted, setRestoreAttempted] = useState(false);
   const [mode, setMode] = useState<AnalysisMode>('music');
   const [currentTime, setCurrentTime] = useState(0);
   const [engineStatus, setEngineStatus] = useState<'online' | 'offline' | 'analyzing'>('online');
@@ -46,63 +57,109 @@ export default function Home() {
   const [hapticConfig, setHapticConfig] = useState<HapticConfig>(DEFAULT_HAPTIC_CONFIG);
   const [hapticTimeline, setHapticTimeline] = useState<HapticTimeline | null>(null);
   const [hapticLastEvent, setHapticLastEvent] = useState<HapticEvent | null>(null);
-  const hapticControllerRef = useRef<HapticController | null>(null);
-  const hapticDriverRef = useRef<ReturnType<typeof createHapticDriver> | null>(null);
+  const [hapticController, setHapticController] = useState<HapticController | null>(null);
+  const [realHardware, setRealHardware] = useState(false);
+  const hapticInitRef = useRef(false);
 
   // Initialize haptic driver once
   useEffect(() => {
+    if (hapticInitRef.current) return;
+    hapticInitRef.current = true;
     const driver = createHapticDriver();
-    hapticDriverRef.current = driver;
+    setRealHardware(driver.isReal);
     const ctrl = new HapticController(driver, {
       onEvent: (evt) => setHapticLastEvent(evt),
     });
-    hapticControllerRef.current = ctrl;
+    setHapticController(ctrl);
     return () => ctrl.destroy();
+  }, []);
+
+  // Restore file from IndexedDB on mount (after a potential reload)
+  useEffect(() => {
+    let cancelled = false;
+
+    async function tryRestore() {
+      try {
+        const meta = await getPersistedMeta();
+        if (cancelled) return;
+
+        if (!meta) {
+          setRestoreAttempted(true);
+          return;
+        }
+
+        // Attempt full restore (includes blob)
+        const file = await restoreFile();
+        if (cancelled) return;
+
+        if (file) {
+          setSelectedFile(file);
+          setSelectedMeta({
+            name: file.name,
+            size: file.size,
+            type: file.type,
+            lastModified: file.lastModified,
+          });
+          setState('file_selected');
+          setRestoreAttempted(true);
+        } else {
+          // Blob was lost or corrupted — show metadata only with re-select prompt
+          setSelectedMeta({
+            name: meta.name,
+            size: meta.size,
+            type: meta.type,
+            lastModified: meta.lastModified,
+          });
+          setError('File selection was interrupted. Please select the track again.');
+          setState('error');
+          setRestoreAttempted(true);
+        }
+      } catch {
+        if (!cancelled) setRestoreAttempted(true);
+      }
+    }
+
+    tryRestore();
+    return () => { cancelled = true; };
   }, []);
 
   // Sync haptic enabled state with config
   useEffect(() => {
-    const ctrl = hapticControllerRef.current;
-    if (ctrl) {
-      ctrl.setEnabled(hapticConfig.master_intensity > 0);
+    if (hapticController) {
+      hapticController.setEnabled(hapticConfig.master_intensity > 0);
     }
-  }, [hapticConfig.master_intensity]);
+  }, [hapticConfig.master_intensity, hapticController]);
 
   // Sync haptic timeline when it changes
   useEffect(() => {
-    const ctrl = hapticControllerRef.current;
-    if (ctrl && hapticTimeline) {
-      ctrl.load(hapticTimeline);
+    if (hapticController && hapticTimeline) {
+      hapticController.load(hapticTimeline);
       if (hapticConfig.master_intensity > 0) {
-        ctrl.play();
+        hapticController.play();
       }
     }
-  }, [hapticTimeline, hapticConfig.master_intensity]);
+  }, [hapticTimeline, hapticConfig.master_intensity, hapticController]);
 
   // Sync haptic seek with currentTime
   const lastSeekRef = useRef(0);
   useEffect(() => {
-    const ctrl = hapticControllerRef.current;
-    if (!ctrl || !hapticTimeline) return;
+    if (!hapticController || !hapticTimeline) return;
     const now = Date.now();
-    // Only seek haptics if there was a significant jump (>200ms) or explicit seek
     const delta = Math.abs(currentTime - lastSeekRef.current);
     if (delta > 0.3 || (delta > 0.05 && now - lastSeekRef.current < 100)) {
-      ctrl.seek(currentTime);
+      hapticController.seek(currentTime);
     }
     lastSeekRef.current = currentTime;
-  }, [currentTime, hapticTimeline]);
+  }, [currentTime, hapticTimeline, hapticController]);
 
   // Load haptic timeline when analysis completes
   useEffect(() => {
     if (state !== 'complete' || !jobId) return;
 
-    // Load waveform
     getWaveformData(jobId, 2000)
       .then(setOriginalWaveform)
       .catch(() => setOriginalWaveform(null));
 
-    // Load haptic timeline
     getHapticTimeline(jobId)
       .then(setHapticTimeline)
       .catch(() => setHapticTimeline(null));
@@ -138,7 +195,16 @@ export default function Home() {
   }, [hapticConfig, state, jobId]);
 
   const handleFileSelected = useCallback(async (file: File) => {
+    // Persist to IndexedDB so file survives reload
+    await persistFile(file);
+
     setSelectedFile(file);
+    setSelectedMeta({
+      name: file.name,
+      size: file.size,
+      type: file.type,
+      lastModified: file.lastModified,
+    });
     setState('file_selected');
     setError('');
 
@@ -179,18 +245,20 @@ export default function Home() {
     }
   }, [selectedFile, mode]);
 
-  const handleReset = useCallback(() => {
+  const handleReset = useCallback(async () => {
     setState('idle');
     setResult(null);
     setJobId('');
     setError('');
     setSelectedFile(null);
+    setSelectedMeta(null);
     setCurrentTime(0);
     setOriginalWaveform(null);
     setDiagnosticWaveform(null);
     setHapticTimeline(null);
-    hapticControllerRef.current?.stop();
-  }, []);
+    hapticController?.stop();
+    await clearPersistedFile();
+  }, [hapticController]);
 
   const handleLayerToggle = useCallback((layerId: string) => {
     setLayers((prev) =>
@@ -199,7 +267,13 @@ export default function Home() {
   }, []);
 
   const isDrumming = result?.mode === 'drumming';
-  const realHardware = hapticDriverRef.current?.isReal ?? false;
+
+  // Determine what file info to display (prefer live File, fall back to persisted meta)
+  const displayMeta = selectedFile
+    ? { name: selectedFile.name, size: selectedFile.size }
+    : selectedMeta
+      ? { name: selectedMeta.name, size: selectedMeta.size }
+      : null;
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg-primary)' }}>
@@ -207,7 +281,7 @@ export default function Home() {
 
       <main className="flex-1 flex flex-col">
         {/* Upload Section */}
-        {state === 'idle' && (
+        {state === 'idle' && restoreAttempted && (
           <div className="flex-1 flex items-center justify-center p-8">
             <div className="w-full max-w-lg">
               <div className="mb-6 text-center">
@@ -226,21 +300,39 @@ export default function Home() {
           </div>
         )}
 
-        {/* File Selected */}
-        {state === 'file_selected' && selectedFile && (
+        {/* Restore in progress — show minimal loader */}
+        {state === 'idle' && !restoreAttempted && (
+          <div className="flex-1 flex items-center justify-center p-8">
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              Restoring...
+            </p>
+          </div>
+        )}
+
+        {/* File Selected (live File object or restored metadata) */}
+        {state === 'file_selected' && displayMeta && (
           <div className="flex-1 flex items-center justify-center p-8">
             <div className="w-full max-w-lg panel-elevated p-6 flex flex-col gap-4">
               <div className="flex items-center gap-3">
                 <FileAudio size={20} style={{ color: 'var(--accent)' }} />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm truncate" style={{ color: 'var(--text-primary)' }}>
-                    {selectedFile.name}
+                    {displayMeta.name}
                   </p>
                   <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                    {(selectedFile.size / (1024 * 1024)).toFixed(1)} MB
+                    {(displayMeta.size / (1024 * 1024)).toFixed(1)} MB
                   </p>
                 </div>
               </div>
+
+              {/* If no live File object, show re-select prompt */}
+              {!selectedFile && (
+                <div className="panel p-3" style={{ borderColor: 'var(--warning)' }}>
+                  <p className="text-xs" style={{ color: 'var(--warning)' }}>
+                    File data was lost. Please re-select the track to continue.
+                  </p>
+                </div>
+              )}
 
               <ModeSelector
                 selected={mode}
@@ -253,7 +345,8 @@ export default function Home() {
               <div className="flex gap-2">
                 <button
                   onClick={handleAnalyze}
-                  className="flex-1 px-4 py-2 text-xs uppercase tracking-wider"
+                  disabled={!selectedFile}
+                  className="flex-1 px-4 py-2 text-xs uppercase tracking-wider disabled:opacity-40 disabled:cursor-not-allowed"
                   style={{
                     background: 'var(--accent-dim)',
                     color: 'var(--text-primary)',
@@ -277,6 +370,10 @@ export default function Home() {
                   Cancel
                 </button>
               </div>
+
+              {!selectedFile && (
+                <TrackUpload onFileSelected={handleFileSelected} />
+              )}
             </div>
           </div>
         )}
@@ -297,18 +394,24 @@ export default function Home() {
                 <span className="text-sm" style={{ color: 'var(--danger)' }}>Analysis Error</span>
               </div>
               <p className="text-xs mb-4" style={{ color: 'var(--text-secondary)' }}>{error}</p>
-              <button
-                onClick={handleReset}
-                className="px-4 py-2 text-xs uppercase tracking-wider"
-                style={{
-                  color: 'var(--text-muted)',
-                  border: '1px solid var(--border)',
-                  borderRadius: '2px',
-                  fontFamily: 'var(--font-geist-mono)',
-                }}
-              >
-                Try again
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    setError('');
+                    setState('idle');
+                    setRestoreAttempted(true);
+                  }}
+                  className="px-4 py-2 text-xs uppercase tracking-wider"
+                  style={{
+                    color: 'var(--text-muted)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '2px',
+                    fontFamily: 'var(--font-geist-mono)',
+                  }}
+                >
+                  Try again
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -450,7 +553,7 @@ export default function Home() {
 
               {/* Haptic Panel */}
               <HapticPanel
-                controller={hapticControllerRef.current}
+                controller={hapticController}
                 realHardware={realHardware}
                 lastEvent={hapticLastEvent}
                 config={hapticConfig}

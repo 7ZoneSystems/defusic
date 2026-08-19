@@ -23,12 +23,6 @@ export default function Timeline({ result, currentTime, onSeek }: TimelineProps)
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [hoverTime, setHoverTime] = useState<number | null>(null);
-  const [hoverEvent, setHoverEvent] = useState<{
-    type: string;
-    time: number;
-    strength: number;
-    delta?: number | null;
-  } | null>(null);
   const [zoom, setZoom] = useState(1);
   const [scrollX, setScrollX] = useState(0);
 
@@ -277,7 +271,7 @@ export default function Timeline({ result, currentTime, onSeek }: TimelineProps)
           className="absolute inset-0 cursor-crosshair"
           onClick={handleClick}
           onMouseMove={handleMouseMove}
-          onMouseLeave={() => { setHoverTime(null); setHoverEvent(null); }}
+          onMouseLeave={() => { setHoverTime(null); }}
         />
       </div>
       <div className="px-3 py-1.5 flex items-center gap-2" style={{ borderTop: '1px solid var(--border)' }}>
