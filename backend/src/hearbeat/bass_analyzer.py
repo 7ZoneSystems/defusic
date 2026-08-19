@@ -34,7 +34,7 @@ class BassStemExtractor:
             return
         try:
             from demucs.api import Separator
-            from demucs.hf import get_hf_model, load_safetensors_model, BagOfModels
+            from demucs.hf import load_safetensors_model, BagOfModels
             import yaml
 
             # Try local model directory first
@@ -50,12 +50,22 @@ class BassStemExtractor:
                     for sig in bag["models"]
                 ]
                 model = BagOfModels(models, bag.get("weights"), bag.get("segment"))
-                self._separator = Separator(
-                    model=self.model_name,
-                    device=self.device,
-                )
-                # Override the loaded model with our local one
+
+                # Bypass Separator constructor to avoid HF network calls
+                self._separator = Separator.__new__(Separator)
+                self._separator._name = self.model_name
+                self._separator._repo = None
+                self._separator._device = self.device
+                self._separator._shifts = 1
+                self._separator._overlap = 0.25
+                self._separator._split = True
+                self._separator._segment = None
+                self._separator._jobs = 0
+                self._separator._progress = False
+                self._separator._callback = None
+                self._separator._callback_arg = None
                 self._separator._model = model
+                self._separator._stem_sources = None
             else:
                 logger.info(
                     "Local model not found at %s, loading from cache/hub: %s",
