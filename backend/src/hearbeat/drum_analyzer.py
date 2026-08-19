@@ -1,4 +1,10 @@
-"""Drum analysis: onset detection, kick/snare/hat classification, beat alignment."""
+"""Drum analysis: onset detection, kick/snare/hat classification, beat alignment.
+
+Enhanced with dedicated kick detection path alongside the existing
+general onset detector. The general onset path handles hi-hat and
+generic drum events. The kick path uses low-frequency filtering and
+spectral features for kick-specific classification.
+"""
 
 from __future__ import annotations
 
@@ -18,9 +24,13 @@ class DrumAnalyzer:
 
     Uses librosa for onset detection (spectral flux / HFC),
     then applies spectral features for classification.
+
+    Enhanced with a dedicated kick detection path that operates
+    on the low-frequency content of the drum signal.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, sr: int = 44100) -> None:
+        self.sr = sr
         self._loaded = False
 
     def _ensure_loaded(self) -> None:
@@ -61,40 +71,38 @@ class DrumAnalyzer:
             return {"events": [], "warnings": ["Drum stem is empty"], "features": {}}
 
         warnings: list[str] = []
-
-        # Run onset detection
-        onsets, onset_strengths = self._detect_onsets(drums, sr)
-
-        if len(onsets) == 0:
-            warnings.append("No onsets detected in drum stem")
-            return {"events": [], "warnings": warnings, "features": {}}
-
-        # Extract features for classification
-        features = self._extract_features(drums, sr, onsets)
-
-        # Classify each onset
-        events = []
         beats_arr = np.array(beats, dtype=np.float64)
 
-        for i, onset_time in enumerate(onsets):
-            strength = float(onset_strengths[i]) if i < len(onset_strengths) else 0.5
-            feat = {k: v[i] for k, v in features.items()}
+        # --- Path 1: General onset detection (hi-hat, snare, drum_onset) ---
+        onsets, onset_strengths = self._detect_onsets(drums, sr)
 
-            # Beat alignment
-            nearest_beat, beat_delta = self._align_to_beat(onset_time, beats_arr)
+        general_events: list[dict] = []
+        if len(onsets) > 0:
+            features = self._extract_features(drums, sr, onsets)
 
-            # Classify
-            event_type, confidence = self._classify_event(feat)
+            for i, onset_time in enumerate(onsets):
+                strength = float(onset_strengths[i]) if i < len(onset_strengths) else 0.5
+                feat = {k: v[i] for k, v in features.items()}
 
-            events.append({
-                "time": float(onset_time),
-                "type": event_type,
-                "strength": strength,
-                "confidence": confidence,
-                "nearest_beat": nearest_beat,
-                "beat_delta_seconds": round(beat_delta, 6),
-                "beat_position": self._beat_position(onset_time, beats_arr),
-            })
+                nearest_beat, beat_delta = self._align_to_beat(onset_time, beats_arr)
+                event_type, confidence = self._classify_event(feat)
+
+                general_events.append({
+                    "time": float(onset_time),
+                    "type": event_type,
+                    "strength": strength,
+                    "confidence": confidence,
+                    "nearest_beat": nearest_beat,
+                    "beat_delta_seconds": round(beat_delta, 6),
+                    "beat_position": self._beat_position(onset_time, beats_arr),
+                    "source": "general_onset",
+                })
+
+        # --- Path 2: Dedicated kick detection ---
+        kick_events = self._detect_kicks(drums, beats_arr)
+
+        # --- Merge: remove general events that overlap with kicks ---
+        events = self._merge_events(general_events, kick_events)
 
         logger.info(
             "Detected %d drum events (%s)",
@@ -107,27 +115,64 @@ class DrumAnalyzer:
             "warnings": warnings,
             "features": {
                 "onset_count": len(onsets),
-                "onset_times": onsets.tolist(),
+                "kick_count": sum(1 for e in events if e["type"] == "kick"),
             },
         }
+
+    def _detect_kicks(
+        self, drums: np.ndarray, beats: np.ndarray
+    ) -> list[dict]:
+        """Run the dedicated kick detector."""
+        from hearbeat.kick_detector import KickDetector
+
+        detector = KickDetector(sr=self.sr)
+        return detector.detect(drums, beats)
+
+    def _merge_events(
+        self, general: list[dict], kicks: list[dict]
+    ) -> list[dict]:
+        """Merge general onset events with kick events.
+
+        Kick events take priority. General events within 50ms of a kick
+        are reclassified as drum_onset (they likely represent the same
+        physical event).
+        """
+        if not kicks:
+            return general
+
+        kick_times = np.array([e["time"] for e in kicks])
+        min_gap = 0.05  # 50ms
+
+        merged = list(kicks)
+        for ge in general:
+            if len(kick_times) > 0:
+                min_dist = float(np.min(np.abs(kick_times - ge["time"])))
+                if min_dist < min_gap:
+                    # This general event overlaps with a kick — reclassify
+                    ge["type"] = "drum_onset"
+                    ge["confidence"] = max(ge["confidence"], 0.3)
+            merged.append(ge)
+
+        merged.sort(key=lambda e: e["time"])
+        return merged
 
     def _detect_onsets(self, audio: np.ndarray, sr: int) -> tuple[np.ndarray, np.ndarray]:
         """Detect onsets using librosa (reliable cross-platform)."""
         import librosa
 
+        hop_length = 512
         onset_env = librosa.onset.onset_strength(
-            y=audio.astype(np.float32), sr=sr, hop_length=512
+            y=audio.astype(np.float32), sr=sr, hop_length=hop_length
         )
         onset_frames = librosa.onset.onset_detect(
-            y=audio.astype(np.float32), sr=sr, hop_length=512, onset_envelope=onset_env
+            y=audio.astype(np.float32), sr=sr, hop_length=hop_length, onset_envelope=onset_env
         )
 
         if len(onset_frames) == 0:
             return np.array([]), np.array([])
 
-        onset_times = librosa.frames_to_time(onset_frames, sr=sr, hop_length=512)
+        onset_times = librosa.frames_to_time(onset_frames, sr=sr, hop_length=hop_length)
 
-        # Get strengths at onset frames
         strengths = np.zeros(len(onset_frames))
         for i, frame in enumerate(onset_frames):
             if frame < len(onset_env):
@@ -143,7 +188,6 @@ class DrumAnalyzer:
     ) -> dict[str, np.ndarray]:
         """Extract spectral features at each onset time for classification."""
         frame_size = 2048
-        hop_size = 512
         n_onsets = len(onset_times)
 
         spectral_centroid = np.zeros(n_onsets)
@@ -162,26 +206,19 @@ class DrumAnalyzer:
             if len(segment) < 2:
                 continue
 
-            # FFT
             fft = np.abs(np.fft.rfft(segment))
             freqs = np.fft.rfftfreq(len(segment), 1.0 / sr)
 
-            # Spectral centroid
             if fft.sum() > 0:
                 spectral_centroid[i] = np.sum(freqs * fft) / np.sum(fft)
-            else:
-                spectral_centroid[i] = 0.0
-
-            # Spectral bandwidth
-            if fft.sum() > 0:
                 mean_centroid = spectral_centroid[i]
                 spectral_bandwidth[i] = np.sqrt(
                     np.sum(fft * (freqs - mean_centroid) ** 2) / np.sum(fft)
                 )
             else:
+                spectral_centroid[i] = 0.0
                 spectral_bandwidth[i] = 0.0
 
-            # Band energies
             total_energy[i] = np.sum(fft ** 2)
             if total_energy[i] > 0:
                 low_mask = freqs < 200
@@ -213,7 +250,6 @@ class DrumAnalyzer:
         high_e = feat.get("high_band_energy", 0)
         bandwidth = feat.get("spectral_bandwidth", 0)
 
-        # Score-based classification
         kick_score = 0.0
         snare_score = 0.0
         hihat_score = 0.0
@@ -237,7 +273,7 @@ class DrumAnalyzer:
             snare_score += 0.3
         if 400 < bandwidth < 1500:
             snare_score += 0.2
-        if centroid > 500 and centroid < 1200:
+        if 500 < centroid < 1200:
             snare_score += 0.2
 
         # Hi-hat: high centroid, high high-band energy, wide bandwidth
@@ -261,11 +297,9 @@ class DrumAnalyzer:
         best_type = max(scores, key=scores.get)
         best_score = scores[best_type]
 
-        # Threshold: require minimum confidence to classify specifically
         if best_score >= 0.6:
             return best_type, min(best_score, 1.0)
 
-        # Generic fallback
         return "drum_onset", max(best_score, 0.3)
 
     def _align_to_beat(
@@ -285,7 +319,6 @@ class DrumAnalyzer:
         if len(beats) < 2:
             return 0.0
 
-        # Find which beat interval this onset falls in
         idx = int(np.searchsorted(beats, onset_time)) - 1
         idx = max(0, min(idx, len(beats) - 2))
 

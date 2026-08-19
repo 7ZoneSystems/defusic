@@ -1,22 +1,35 @@
-"""Bass analysis using Demucs source separation + signal features."""
+"""Bass analysis using filter-bank energy and onset detection.
+
+Replaces the previous Demucs-based bass stem approach with a direct
+filter-bank pipeline operating on the original audio. Detects:
+
+- bass transients: onset/attack events in the bass signal
+- bass_activity: sustained low-frequency energy regions
+- subbass events: separate analysis for 20-60 Hz
+"""
 
 from __future__ import annotations
 
 import logging
-import tempfile
 from pathlib import Path
 
 import numpy as np
 
 from hearbeat.config import (
-    BASS_ACTIVITY_ENERGY_THRESHOLD,
     BASS_ACTIVITY_MIN_DURATION,
-    BASS_MAX_HZ,
-    DEVICE,
-    DEMUCS_MODEL,
-    MODELS_DIR,
-    SUBBASS_MAX_HZ,
+    BASS_ACTIVITY_THRESHOLD,
+    BASS_LOW_HZ,
+    BASS_HIGH_HZ,
+    BASS_MIN_EVENT_GAP,
+    BASS_ONSET_DELTA,
+    FILTER_ORDER,
+    HOP_LENGTH,
+    LOWMID_HIGH_HZ,
+    LOWMID_LOW_HZ,
+    SUBBASS_HIGH_HZ,
+    SUBBASS_LOW_HZ,
 )
+from hearbeat.filter_bank import FilterBank
 
 logger = logging.getLogger(__name__)
 
@@ -25,136 +38,116 @@ class BassAnalysisError(Exception):
     """Raised when bass analysis fails."""
 
 
-class BassStemExtractor:
-    """Extracts bass stem using Demucs source separation.
-
-    Isolated behind this interface so the model can be replaced later.
-    """
-
-    def __init__(self, model_name: str | None = None, device: str | None = None):
-        self.model_name = model_name or DEMUCS_MODEL
-        self.device = device or DEVICE
-        self.models_dir = MODELS_DIR
-        self._separate_func = None
-
-    def _ensure_loaded(self) -> None:
-        if self._separate_func is not None:
-            return
-        try:
-            from demucs.api import Separator
-            from demucs.hf import load_safetensors_model, BagOfModels
-            import yaml
-
-            local_model_dir = self.models_dir
-            yaml_path = local_model_dir / f"{self.model_name}.yaml"
-
-            if yaml_path.is_file():
-                logger.info("Loading Demucs model from local: %s", local_model_dir)
-                with open(yaml_path) as f:
-                    bag = yaml.safe_load(f)
-                models = [
-                    load_safetensors_model(local_model_dir / f"{sig}.safetensors")
-                    for sig in bag["models"]
-                ]
-                model = BagOfModels(models, bag.get("weights"), bag.get("segment"))
-
-                self._separator = Separator.__new__(Separator)
-                self._separator._name = self.model_name
-                self._separator._repo = None
-                self._separator._device = self.device
-                self._separator._shifts = 1
-                self._separator._overlap = 0.25
-                self._separator._split = True
-                self._separator._segment = None
-                self._separator._jobs = 0
-                self._separator._progress = False
-                self._separator._callback = None
-                self._separator._callback_arg = None
-                self._separator._model = model
-                self._separator._stem_sources = None
-                self._separator._samplerate = model.samplerate
-                self._separator._audio_channels = model.audio_channels
-            else:
-                logger.info(
-                    "Local model not found at %s, loading from cache/hub: %s",
-                    yaml_path, self.model_name,
-                )
-                self._separator = Separator(
-                    model=self.model_name,
-                    device=self.device,
-                )
-            logger.info(
-                "Loaded Demucs separator: model=%s, device=%s",
-                self.model_name, self.device,
-            )
-        except ImportError as e:
-            raise BassAnalysisError(
-                "Demucs is required for bass separation. "
-                "Install with: pip install demucs"
-            ) from e
-
-    def extract_bass(self, wav_path: Path) -> tuple[np.ndarray, int]:
-        """Extract bass stem from a WAV file.
-
-        Returns:
-            Tuple of (bass_audio_array, sample_rate)
-        """
-        self._ensure_loaded()
-
-        logger.info("Running Demucs bass separation on: %s", wav_path)
-        _, separated = self._separator.separate_audio_file(str(wav_path))
-
-        if "bass" not in separated:
-            raise BassAnalysisError(
-                f"Demucs did not produce a bass stem. Available: {list(separated.keys())}"
-            )
-
-        bass = separated["bass"].cpu().numpy()
-
-        if bass.ndim > 1 and bass.shape[0] > 1:
-            bass = bass.mean(axis=0)
-        elif bass.ndim > 1:
-            bass = bass[0]
-
-        sr = self._separator.samplerate
-        logger.info(
-            "Extracted bass stem: %.1fs at %d Hz", len(bass) / sr, sr,
-        )
-        return bass, sr
-
-
 class BassAnalyzer:
-    """Analyzes bass signal for musical events.
+    """Filter-bank based bass analyzer.
 
-    Detects two types of bass events:
-    - bass transient: onset/attack in the bass signal
-    - bass_activity: sustained low-frequency energy
+    Operates directly on the original audio (no Demucs required).
+    Detects bass transients via onset strength and bass activity
+    via energy envelope thresholding.
     """
 
-    def __init__(self) -> None:
-        self.separator = BassStemExtractor()
+    def __init__(self, sr: int = 44100) -> None:
+        self.sr = sr
+        self._filter_bank: FilterBank | None = None
+
+    def _get_filter_bank(self) -> FilterBank:
+        if self._filter_bank is None:
+            self._filter_bank = FilterBank(
+                sr=self.sr,
+                bands={
+                    "subbass": (SUBBASS_LOW_HZ, SUBBASS_HIGH_HZ),
+                    "bass": (BASS_LOW_HZ, BASS_HIGH_HZ),
+                    "lowmid": (LOWMID_LOW_HZ, LOWMID_HIGH_HZ),
+                },
+                order=FILTER_ORDER,
+            )
+        return self._filter_bank
 
     def analyze(self, wav_path: Path) -> dict:
-        """Full bass analysis: separation + feature extraction.
+        """Full bass analysis from a WAV file.
+
+        Loads audio, applies filter bank, detects events.
 
         Returns:
-            dict with bass features and detected bass events.
+            dict with bass features, events, and filtered signals.
         """
-        bass_audio, sr = self.separator.extract_bass(wav_path)
+        import soundfile as sf
 
-        if len(bass_audio) == 0:
-            return {
-                "bass_audio": np.array([], dtype=np.float32),
-                "sample_rate": sr,
-                "events": [],
-                "rms_envelope": np.array([]),
-                "onset_envelope": np.array([]),
-                "warnings": ["Bass stem is empty"],
-            }
+        audio, file_sr = sf.read(str(wav_path), dtype="float32")
+        if audio.ndim > 1:
+            audio = audio.mean(axis=1)
 
-        features = self._extract_features(bass_audio, sr)
-        transient_events = self._detect_bass_transients(bass_audio, sr, features)
-        activity_events = self._detect_bass_activity(bass_audio, sr, features)
+        # Resample if needed (the pipeline normalizes to 44100)
+        if file_sr != self.sr:
+            try:
+                import librosa
+                audio = librosa.resample(
+                    audio, orig_sr=file_sr, target_sr=self.sr
+                ).astype(np.float32)
+            except ImportError:
+                logger.warning(
+                    "Cannot resample from %d to %d — using raw audio", file_sr, self.sr
+                )
+
+        return self.analyze_audio(audio)
+
+    def analyze_audio(self, audio: np.ndarray) -> dict:
+        """Analyze a raw audio array for bass events.
+
+        Args:
+            audio: Mono float32 audio at self.sr sample rate.
+
+        Returns:
+            dict with features, events, filtered signals, warnings.
+        """
+        if len(audio) == 0:
+            return self._empty_result("Audio is empty")
+
+        fb = self._get_filter_bank()
+        hop = HOP_LENGTH
+
+        # Filter into bands
+        subbass_filtered = fb.filter_band(audio, "subbass", causal=False)
+        bass_filtered = fb.filter_band(audio, "bass", causal=False)
+        lowmid_filtered = fb.filter_band(audio, "lowmid", causal=False)
+
+        # Combined bass signal (subbass + bass + lowmid)
+        bass_combined = subbass_filtered + bass_filtered + lowmid_filtered
+
+        # Energy envelopes
+        subbass_energy = fb.band_energy_envelope(audio, "subbass", hop_length=hop)
+        bass_energy = fb.band_energy_envelope(audio, "bass", hop_length=hop)
+        lowmid_energy = fb.band_energy_envelope(audio, "lowmid", hop_length=hop)
+
+        # RMS of combined bass
+        bass_rms = _frame_rms(bass_combined, 2048, hop)
+
+        # Onset strength on the bass-filtered signal
+        onset_env = _onset_strength(bass_combined, self.sr, hop)
+
+        # Track-level normalization
+        peak_rms = float(bass_rms.max()) if len(bass_rms) > 0 else 1.0
+        if peak_rms < 1e-10:
+            peak_rms = 1.0
+
+        features = {
+            "subbass_energy": subbass_energy,
+            "bass_energy": bass_energy,
+            "lowmid_energy": lowmid_energy,
+            "bass_rms": bass_rms,
+            "onset_strength": onset_env,
+            "hop_length": hop,
+            "duration": len(audio) / self.sr,
+            "peak_rms": peak_rms,
+        }
+
+        # Detect events
+        transient_events = self._detect_bass_transients(
+            bass_combined, bass_rms, onset_env, hop, peak_rms
+        )
+        activity_events = self._detect_bass_activity(
+            subbass_energy, bass_energy, lowmid_energy, hop, peak_rms
+        )
 
         # Merge: remove activity events that overlap with transients
         merged = self._merge_events(transient_events, activity_events)
@@ -165,179 +158,47 @@ class BassAnalyzer:
         )
 
         return {
-            "bass_audio": bass_audio,
-            "sample_rate": sr,
             "features": features,
             "events": merged,
+            "filtered": {
+                "subbass": subbass_filtered,
+                "bass": bass_filtered,
+                "lowmid": lowmid_filtered,
+                "combined": bass_combined,
+            },
             "warnings": [],
         }
 
-    def _extract_features(self, bass: np.ndarray, sr: int) -> dict:
-        """Extract signal-level features from the bass stem."""
-        hop_length = 512
-        frame_length = 2048
-
-        # RMS energy in frames
-        rms = self._frame_rms(bass, frame_length, hop_length)
-
-        # Onset strength (spectral flux-based)
-        onset_env = self._onset_strength(bass, sr, hop_length)
-
-        # Low-frequency energy envelope
-        low_freq_energy = self._low_frequency_energy(bass, sr, hop_length)
-
-        # Sub-bass energy (below subbass_max_hz)
-        subbass_energy = self._band_energy(
-            bass, sr, hop_length,
-            low_hz=20, high_hz=SUBBASS_MAX_HZ,
-        )
-
-        # Bass energy (below bass_max_hz)
-        bass_band_energy = self._band_energy(
-            bass, sr, hop_length,
-            low_hz=20, high_hz=BASS_MAX_HZ,
-        )
-
-        # Track-level normalization: get the peak energy for relative scaling
-        peak_rms = float(rms.max()) if len(rms) > 0 else 1.0
-        if peak_rms < 1e-10:
-            peak_rms = 1.0
-
-        return {
-            "rms": rms,
-            "onset_strength": onset_env,
-            "low_freq_energy": low_freq_energy,
-            "subbass_energy": subbass_energy,
-            "bass_band_energy": bass_band_energy,
-            "hop_length": hop_length,
-            "frame_length": frame_length,
-            "duration": len(bass) / sr,
-            "peak_rms": peak_rms,
-        }
-
-    def _frame_rms(
-        self, signal: np.ndarray, frame_length: int, hop_length: int
-    ) -> np.ndarray:
-        """Compute RMS energy per frame."""
-        n_frames = 1 + (len(signal) - frame_length) // hop_length
-        if n_frames <= 0:
-            return np.array([np.sqrt(np.mean(signal**2))], dtype=np.float64)
-
-        frames = np.lib.stride_tricks.as_strided(
-            signal,
-            shape=(n_frames, frame_length),
-            strides=(signal.strides[0] * hop_length, signal.strides[0]),
-        )
-        rms = np.sqrt(np.mean(frames**2, axis=1))
-        return rms.astype(np.float64)
-
-    def _onset_strength(
-        self, signal: np.ndarray, sr: int, hop_length: int
-    ) -> np.ndarray:
-        """Compute onset strength envelope using spectral flux."""
-        try:
-            import librosa
-
-            onset_env = librosa.onset.onset_strength(
-                y=signal.astype(np.float32),
-                sr=sr,
-                hop_length=hop_length,
-            )
-            return onset_env.astype(np.float64)
-        except ImportError:
-            return self._spectral_flux_fallback(signal, sr, hop_length)
-
-    def _spectral_flux_fallback(
-        self, signal: np.ndarray, sr: int, hop_length: int
-    ) -> np.ndarray:
-        """Fallback onset detection using scipy FFT."""
-        from scipy.signal import stft
-
-        _, _, Zxx = stft(signal, fs=sr, nperseg=2048, noverlap=2048 - hop_length)
-        magnitude = np.abs(Zxx)
-
-        diff = np.diff(magnitude, axis=1)
-        flux = np.maximum(0, diff).sum(axis=0)
-        return flux.astype(np.float64)
-
-    def _low_frequency_energy(
-        self, signal: np.ndarray, sr: int, hop_length: int
-    ) -> np.ndarray:
-        """Compute low-frequency energy envelope via bandpass filtering.
-
-        Uses a bandpass filter targeting the bass/sub-bass range (20-250 Hz),
-        then computes RMS of the filtered signal per frame.
-        """
-        from scipy.signal import butter, filtfilt
-
-        nyq = sr / 2.0
-        low = 20.0 / nyq
-        high = min(BASS_MAX_HZ / nyq, 0.99)
-
-        if low >= high:
-            # Fallback: just use RMS
-            return self._frame_rms(signal, 2048, hop_length)
-
-        b, a = butter(2, [low, high], btype="band")
-        filtered = filtfilt(b, a, signal)
-
-        return self._frame_rms(filtered, 2048, hop_length)
-
-    def _band_energy(
-        self,
-        signal: np.ndarray,
-        sr: int,
-        hop_length: int,
-        low_hz: float = 20.0,
-        high_hz: float = 250.0,
-    ) -> np.ndarray:
-        """Compute energy in a specific frequency band per frame."""
-        from scipy.signal import butter, filtfilt
-
-        nyq = sr / 2.0
-        low = low_hz / nyq
-        high = min(high_hz / nyq, 0.99)
-
-        if low >= high:
-            return np.zeros(1 + (len(signal) - 2048) // hop_length, dtype=np.float64)
-
-        b, a = butter(2, [low, high], btype="band")
-        filtered = filtfilt(b, a, signal)
-
-        return self._frame_rms(filtered, 2048, hop_length)
-
     def _detect_bass_transients(
-        self, bass: np.ndarray, sr: int, features: dict
+        self,
+        bass_combined: np.ndarray,
+        bass_rms: np.ndarray,
+        onset_env: np.ndarray,
+        hop_length: int,
+        peak_rms: float,
     ) -> list[dict]:
-        """Detect bass transients (onset/attack events).
-
-        Uses onset strength + RMS for transient detection.
-        """
-        rms = features["rms"]
-        onset_env = features["onset_strength"]
-        hop_length = features["hop_length"]
-
-        if len(rms) == 0 or len(onset_env) == 0:
+        """Detect bass transients using onset strength + RMS."""
+        if len(bass_rms) == 0 or len(onset_env) == 0:
             return []
 
-        rms_norm = self._normalize(rms)
-        onset_norm = self._normalize(onset_env)
-
-        min_len = min(len(rms_norm), len(onset_norm))
-        rms_norm = rms_norm[:min_len]
-        onset_norm = onset_norm[:min_len]
+        min_len = min(len(bass_rms), len(onset_env))
+        rms_norm = _normalize(bass_rms[:min_len])
+        onset_norm = _normalize(onset_env[:min_len])
 
         combined = 0.5 * rms_norm + 0.5 * onset_norm
 
+        # Adaptive threshold: mean + 1.5 * std
         mean_val = np.mean(combined)
         std_val = np.std(combined)
         threshold = mean_val + 1.5 * std_val
 
-        events = []
-        frame_times = np.arange(min_len) * hop_length / sr
+        events: list[dict] = []
+        frame_times = np.arange(min_len) * hop_length / self.sr
+        min_gap_frames = int(BASS_MIN_EVENT_GAP * self.sr / hop_length)
 
         in_event = False
         event_start_idx = 0
+        last_event_frame = -min_gap_frames
 
         for i in range(min_len):
             if combined[i] >= threshold and not in_event:
@@ -348,70 +209,73 @@ class BassAnalyzer:
                 event_end_idx = i if combined[i] < threshold else i + 1
 
                 region = combined[event_start_idx:event_end_idx]
-                peak_local_idx = np.argmax(region)
+                peak_local_idx = int(np.argmax(region))
                 peak_idx = event_start_idx + peak_local_idx
 
-                peak_time = float(frame_times[peak_idx])
-                peak_strength = float(rms_norm[peak_idx])
-                peak_onset = float(onset_norm[peak_idx])
-                event_duration = float(
-                    (event_end_idx - event_start_idx) * hop_length / sr
-                )
+                # Enforce minimum gap
+                if peak_idx - last_event_frame < min_gap_frames:
+                    continue
 
+                event_duration = float(
+                    (event_end_idx - event_start_idx) * hop_length / self.sr
+                )
                 if event_duration < 0.02:
                     continue
 
-                # Normalized energy relative to track peak
-                normalized_energy = float(rms[peak_idx] / features["peak_rms"])
+                # Gate: skip events with negligible energy
+                raw_rms_val = float(bass_rms[peak_idx])
+                if raw_rms_val < 1e-6:
+                    continue
+
+                normalized_energy = raw_rms_val / peak_rms if peak_rms > 0 else 0.0
 
                 events.append({
-                    "time": peak_time,
-                    "strength": float(np.clip(peak_strength, 0.0, 1.0)),
-                    "raw_rms": float(rms[peak_idx]),
+                    "time": float(frame_times[peak_idx]),
+                    "strength": float(np.clip(rms_norm[peak_idx], 0.0, 1.0)),
+                    "raw_rms": float(bass_rms[peak_idx]),
                     "normalized_energy": normalized_energy,
                     "duration": event_duration,
-                    "onset_strength": peak_onset,
+                    "onset_strength": float(onset_norm[peak_idx]),
                     "frame_index": int(peak_idx),
                     "event_kind": "transient",
                 })
+                last_event_frame = peak_idx
 
-        logger.info("Detected %d bass transients", len(events))
         return events
 
     def _detect_bass_activity(
-        self, bass: np.ndarray, sr: int, features: dict
+        self,
+        subbass_energy: np.ndarray,
+        bass_energy: np.ndarray,
+        lowmid_energy: np.ndarray,
+        hop_length: int,
+        peak_rms: float,
     ) -> list[dict]:
-        """Detect sustained bass activity from low-frequency energy.
+        """Detect sustained bass activity from energy envelopes.
 
-        This captures sustained sub-bass/bass that may not have repeated onsets.
-        Uses the low-frequency energy envelope with a combination of:
-        1. Absolute energy threshold (relative to track peak)
-        2. Adaptive threshold for regions with energy variation
+        Merges adjacent active frames into coherent activity intervals.
         """
-        low_freq = features["low_freq_energy"]
-        subbass = features["subbass_energy"]
-        hop_length = features["hop_length"]
-        peak_rms = features["peak_rms"]
-
-        if len(low_freq) == 0:
+        min_len = min(len(subbass_energy), len(bass_energy), len(lowmid_energy))
+        if min_len == 0:
             return []
 
-        # Use the maximum of low-freq and subbass energy
-        min_len = min(len(low_freq), len(subbass))
-        energy = np.maximum(low_freq[:min_len], subbass[:min_len])
+        # Use the maximum energy across the three bands
+        energy = np.maximum(
+            np.maximum(subbass_energy[:min_len], bass_energy[:min_len]),
+            lowmid_energy[:min_len],
+        )
 
         # Normalize relative to track peak
         if peak_rms > 1e-10:
             energy_relative = energy / peak_rms
         else:
-            energy_relative = self._normalize(energy)
+            energy_relative = _normalize(energy)
 
-        # Use a lower threshold based on absolute energy level
-        # A bass event should have at least 30% of the track's peak energy
-        threshold = max(BASS_ACTIVITY_ENERGY_THRESHOLD, 0.3)
+        threshold = BASS_ACTIVITY_THRESHOLD
+        min_duration_frames = int(BASS_ACTIVITY_MIN_DURATION * self.sr / hop_length)
 
-        frame_times = np.arange(min_len) * hop_length / sr
-        events = []
+        frame_times = np.arange(min_len) * hop_length / self.sr
+        events: list[dict] = []
 
         in_event = False
         event_start_idx = 0
@@ -425,24 +289,24 @@ class BassAnalyzer:
                 event_end_idx = i if energy_relative[i] < threshold else i + 1
 
                 event_duration_frames = event_end_idx - event_start_idx
-                event_duration = float(event_duration_frames * hop_length / sr)
-
-                # Skip events shorter than minimum duration
-                if event_duration < BASS_ACTIVITY_MIN_DURATION:
+                if event_duration_frames < min_duration_frames:
                     continue
 
-                # Representative timestamp: middle of the activity region
+                event_duration = float(event_duration_frames * hop_length / self.sr)
                 mid_idx = (event_start_idx + event_end_idx) // 2
                 mid_time = float(frame_times[mid_idx])
 
-                # Strength: average energy in the region, normalized
                 region_energy = energy[event_start_idx:event_end_idx]
                 avg_energy = float(np.mean(region_energy))
                 normalized_energy = avg_energy / peak_rms if peak_rms > 0 else 0.0
 
-                # Peak within region
-                peak_local = np.argmax(energy_relative[event_start_idx:event_end_idx])
+                peak_local = int(np.argmax(energy_relative[event_start_idx:event_end_idx]))
                 peak_idx = event_start_idx + peak_local
+
+                # Compute per-band energy for diagnostics
+                sub_avg = float(np.mean(subbass_energy[event_start_idx:event_end_idx]))
+                bass_avg = float(np.mean(bass_energy[event_start_idx:event_end_idx]))
+                lowmid_avg = float(np.mean(lowmid_energy[event_start_idx:event_end_idx]))
 
                 events.append({
                     "time": mid_time,
@@ -455,9 +319,11 @@ class BassAnalyzer:
                     "event_kind": "activity",
                     "start_time": float(frame_times[event_start_idx]),
                     "end_time": float(frame_times[min(event_end_idx, min_len - 1)]),
+                    "subbass_energy": sub_avg,
+                    "bass_energy": bass_avg,
+                    "lowmid_energy": lowmid_avg,
                 })
 
-        logger.info("Detected %d bass activity regions", len(events))
         return events
 
     def _merge_events(
@@ -466,56 +332,90 @@ class BassAnalyzer:
         """Merge transient and activity events.
 
         Activity events that overlap with transients are removed.
-        Activity events get a 'time_start' and 'time_end' for interval display.
         """
         if not activity:
             return transients
         if not transients:
             return activity
 
-        # Build a set of times covered by transients (with tolerance)
-        transient_times = set()
+        transient_times: set[int] = set()
         for t in transients:
-            # Mark frames near this transient
             frame = t.get("frame_index", 0)
             for offset in range(-3, 4):
                 transient_times.add(frame + offset)
 
         merged = list(transients)
-
         for act in activity:
             peak_frame = act.get("frame_index", 0)
-            # Check if this activity's peak overlaps with any transient
             if peak_frame in transient_times:
                 continue
+            merged.append(act)
 
-            # Convert to AnalysisEvent-compatible format
-            # Activity events use 'bass_activity' type
-            merged.append({
-                "time": act["time"],
-                "strength": act["strength"],
-                "raw_rms": act["raw_rms"],
-                "normalized_energy": act["normalized_energy"],
-                "duration": act["duration"],
-                "onset_strength": 0.0,
-                "frame_index": act["frame_index"],
-                "event_kind": "activity",
-                "start_time": act.get("start_time", act["time"]),
-                "end_time": act.get("end_time", act["time"] + act["duration"]),
-            })
-
-        # Sort by time
         merged.sort(key=lambda e: e["time"])
-
         return merged
 
-    @staticmethod
-    def _normalize(arr: np.ndarray) -> np.ndarray:
-        """Min-max normalize to 0-1."""
-        if len(arr) == 0:
-            return arr
-        min_val = arr.min()
-        max_val = arr.max()
-        if max_val - min_val < 1e-10:
-            return np.zeros_like(arr)
-        return (arr - min_val) / (max_val - min_val)
+    def _empty_result(self, warning: str) -> dict:
+        return {
+            "features": {},
+            "events": [],
+            "filtered": {},
+            "warnings": [warning],
+        }
+
+
+def _frame_rms(
+    signal: np.ndarray, frame_length: int, hop_length: int
+) -> np.ndarray:
+    """Compute RMS energy per frame."""
+    n_frames = 1 + (len(signal) - frame_length) // hop_length
+    if n_frames <= 0:
+        return np.array([np.sqrt(np.mean(signal**2))], dtype=np.float64)
+
+    frames = np.lib.stride_tricks.as_strided(
+        signal,
+        shape=(n_frames, frame_length),
+        strides=(signal.strides[0] * hop_length, signal.strides[0]),
+    )
+    rms = np.sqrt(np.mean(frames**2, axis=1))
+    return rms.astype(np.float64)
+
+
+def _onset_strength(
+    signal: np.ndarray, sr: int, hop_length: int
+) -> np.ndarray:
+    """Compute onset strength envelope using spectral flux."""
+    try:
+        import librosa
+
+        onset_env = librosa.onset.onset_strength(
+            y=signal.astype(np.float32),
+            sr=sr,
+            hop_length=hop_length,
+        )
+        return onset_env.astype(np.float64)
+    except ImportError:
+        return _spectral_flux_fallback(signal, sr, hop_length)
+
+
+def _spectral_flux_fallback(
+    signal: np.ndarray, sr: int, hop_length: int
+) -> np.ndarray:
+    """Fallback onset detection using scipy FFT."""
+    from scipy.signal import stft
+
+    _, _, Zxx = stft(signal, fs=sr, nperseg=2048, noverlap=2048 - hop_length)
+    magnitude = np.abs(Zxx)
+    diff = np.diff(magnitude, axis=1)
+    flux = np.maximum(0, diff).sum(axis=0)
+    return flux.astype(np.float64)
+
+
+def _normalize(arr: np.ndarray) -> np.ndarray:
+    """Min-max normalize to 0-1."""
+    if len(arr) == 0:
+        return arr
+    min_val = float(arr.min())
+    max_val = float(arr.max())
+    if max_val - min_val < 1e-10:
+        return np.zeros_like(arr)
+    return ((arr - min_val) / (max_val - min_val)).astype(np.float64)

@@ -44,7 +44,7 @@ class HapticConfig:
     bass_offbeat: HapticEventConfig = field(default_factory=lambda: HapticEventConfig(intensity=0.50, duration_ms=50))
     bass_accent: HapticEventConfig = field(default_factory=lambda: HapticEventConfig(intensity=0.85, duration_ms=90))
     bass_activity: HapticEventConfig = field(default_factory=lambda: HapticEventConfig(intensity=0.65, duration_ms=100))
-    drum_onset: HapticEventConfig = field(default_factory=lambda: HapticEventConfig(intensity=0.50, duration_ms=35))
+    drum_onset: HapticEventConfig = field(default_factory=lambda: HapticEventConfig(intensity=0.50, duration_ms=155))
     cymbal: HapticEventConfig = field(default_factory=lambda: HapticEventConfig(intensity=0.45, duration_ms=30))
     percussion: HapticEventConfig = field(default_factory=lambda: HapticEventConfig(intensity=0.50, duration_ms=35))
 
@@ -93,7 +93,7 @@ def drummer_default() -> HapticConfig:
         bass_offbeat=HapticEventConfig(intensity=0.50, duration_ms=50),
         bass_accent=HapticEventConfig(intensity=0.85, duration_ms=90),
         bass_activity=HapticEventConfig(intensity=0.65, duration_ms=100),
-        drum_onset=HapticEventConfig(intensity=0.50, duration_ms=35),
+        drum_onset=HapticEventConfig(intensity=0.50, duration_ms=155),
         cymbal=HapticEventConfig(intensity=0.45, duration_ms=30),
         percussion=HapticEventConfig(intensity=0.50, duration_ms=35),
         anticipation=AnticipationConfig(enabled=False),
@@ -115,7 +115,7 @@ def music_enjoyment() -> HapticConfig:
         bass_offbeat=HapticEventConfig(intensity=0.55, duration_ms=55),
         bass_accent=HapticEventConfig(intensity=0.90, duration_ms=95),
         bass_activity=HapticEventConfig(intensity=0.70, duration_ms=110),
-        drum_onset=HapticEventConfig(intensity=0.45, duration_ms=30),
+        drum_onset=HapticEventConfig(intensity=0.45, duration_ms=140),
         cymbal=HapticEventConfig(intensity=0.40, duration_ms=25),
         percussion=HapticEventConfig(intensity=0.45, duration_ms=30),
         anticipation=AnticipationConfig(
