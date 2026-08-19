@@ -42,25 +42,15 @@ export default function TrackUpload({ onFileSelected, disabled }: TrackUploadPro
         background: 'var(--bg-elevated)',
       }}
     >
-      {/* Visually hidden but NOT display:none — .click() works */}
       <input
         ref={inputRef}
+        id="file-upload-input"
         type="file"
         accept="audio/*,video/mp4"
         onChange={handleChange}
         disabled={disabled}
         aria-label="Upload audio file"
-        style={{
-          position: 'absolute',
-          width: '1px',
-          height: '1px',
-          padding: 0,
-          margin: '-1px',
-          overflow: 'hidden',
-          clip: 'rect(0,0,0,0)',
-          whiteSpace: 'nowrap',
-          borderWidth: 0,
-        }}
+        style={{ position: 'absolute', opacity: 0, width: 0, height: 0, pointerEvents: 'none' }}
       />
 
       <FileAudio size={32} style={{ color: 'var(--text-muted)' }} strokeWidth={1} />
@@ -74,10 +64,8 @@ export default function TrackUpload({ onFileSelected, disabled }: TrackUploadPro
         </p>
       </div>
 
-      <button
-        type="button"
-        onClick={() => inputRef.current?.click()}
-        disabled={disabled}
+      <label
+        htmlFor="file-upload-input"
         className="flex items-center gap-2 px-3 py-1.5 text-xs uppercase tracking-wider"
         style={{
           color: 'var(--text-secondary)',
@@ -85,12 +73,11 @@ export default function TrackUpload({ onFileSelected, disabled }: TrackUploadPro
           borderRadius: '2px',
           fontFamily: 'var(--font-geist-mono)',
           cursor: disabled ? 'not-allowed' : 'pointer',
-          background: 'transparent',
         }}
       >
         <Upload size={12} />
         Choose file
-      </button>
+      </label>
     </div>
   );
 }
