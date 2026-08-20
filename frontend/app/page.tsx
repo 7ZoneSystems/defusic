@@ -10,7 +10,6 @@ import DrumMetricsStrip from '@/components/DrumMetricsStrip';
 import Timeline from '@/components/Timeline';
 import EventInspector from '@/components/EventInspector';
 import DrumEventInspector from '@/components/DrumEventInspector';
-import JsonInspector from '@/components/JsonInspector';
 import PlaybackControls from '@/components/PlaybackControls';
 import DiagnosticPlayer from '@/components/DiagnosticPlayer';
 import DualWaveform from '@/components/DualWaveform';
@@ -577,9 +576,6 @@ export default function Home() {
               ) : (
                 <EventInspector events={result.events} />
               )}
-
-              {/* JSON Inspector */}
-              <JsonInspector result={result} />
             </div>
           </div>
         )}

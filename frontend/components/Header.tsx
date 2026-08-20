@@ -47,17 +47,6 @@ export default function Header({ status = 'online', mode, children }: HeaderProp
             {mode === 'drumming' ? 'DRUMMING' : 'MUSIC'}
           </span>
         )}
-        <span
-          className="text-xs uppercase tracking-wider px-2 py-0.5"
-          style={{
-            color: 'var(--text-muted)',
-            fontFamily: 'var(--font-geist-mono)',
-            border: '1px solid var(--border)',
-            borderRadius: '2px',
-          }}
-        >
-          STAGE 2
-        </span>
         <ThemeSwitcher />
         <div className="flex items-center gap-1.5">
           <div
