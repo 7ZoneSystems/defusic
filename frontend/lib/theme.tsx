@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useCallback, useSyncExternalStore, ReactNode } from 'react';
 
 export type ThemePreference = 'system' | 'light' | 'dark';
 type ResolvedTheme = 'light' | 'dark';
@@ -15,14 +15,36 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 const STORAGE_KEY = 'hearbeat-theme';
 
-function getStoredPreference(): ThemePreference {
-  if (typeof window === 'undefined') return 'system';
+// ---------------------------------------------------------------------------
+// External store for theme preference (SSR-safe via useSyncExternalStore)
+// ---------------------------------------------------------------------------
+
+let prefListeners: Array<() => void> = [];
+
+function emitPrefChange() {
+  for (const l of prefListeners) l();
+}
+
+function getPrefSnapshot(): ThemePreference {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored === 'light' || stored === 'dark' || stored === 'system') return stored;
   } catch { /* ignore */ }
   return 'system';
 }
+
+function getPrefServerSnapshot(): ThemePreference {
+  return 'system';
+}
+
+function subscribePref(callback: () => void) {
+  prefListeners.push(callback);
+  return () => { prefListeners = prefListeners.filter((l) => l !== callback); };
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function resolveSystemTheme(): ResolvedTheme {
   if (typeof window === 'undefined') return 'dark';
@@ -33,38 +55,38 @@ function applyTheme(resolved: ResolvedTheme) {
   document.documentElement.setAttribute('data-theme', resolved);
 }
 
-export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [preference, setPreferenceState] = useState<ThemePreference>(getStoredPreference);
-  const [resolved, setResolved] = useState<ResolvedTheme>(() =>
-    preference === 'system' ? resolveSystemTheme() : preference
-  );
+// ---------------------------------------------------------------------------
+// Provider
+// ---------------------------------------------------------------------------
 
-  // Apply theme to DOM
+export function ThemeProvider({ children }: { children: ReactNode }) {
+  const preference = useSyncExternalStore(subscribePref, getPrefSnapshot, getPrefServerSnapshot);
+
+  // Derive resolved theme (no useState, no cascading renders)
+  const resolved: ResolvedTheme = preference === 'system' ? resolveSystemTheme() : preference;
+
+  // Sync resolved theme to DOM whenever it changes
   useEffect(() => {
     applyTheme(resolved);
   }, [resolved]);
 
-  // Listen for system changes when preference is 'system'
+  // Listen for real-time system color-scheme changes when preference is 'system'
   useEffect(() => {
     if (preference !== 'system') return;
     const mql = window.matchMedia('(prefers-color-scheme: light)');
     const handler = (e: MediaQueryListEvent) => {
-      setResolved(e.matches ? 'light' : 'dark');
+      applyTheme(e.matches ? 'light' : 'dark');
     };
     mql.addEventListener('change', handler);
     return () => mql.removeEventListener('change', handler);
   }, [preference]);
 
   const setPreference = useCallback((p: ThemePreference) => {
-    setPreferenceState(p);
     try {
       localStorage.setItem(STORAGE_KEY, p);
     } catch { /* ignore */ }
-    if (p === 'system') {
-      setResolved(resolveSystemTheme());
-    } else {
-      setResolved(p);
-    }
+    applyTheme(p === 'system' ? resolveSystemTheme() : p);
+    emitPrefChange();
   }, []);
 
   return (
