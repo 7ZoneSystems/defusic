@@ -16,6 +16,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "HearBeat - Music Analysis Engine",
   description: "Music analysis engine with haptic feedback for hearing-impaired musicians",
+  icons: {
+    icon: "/favicon.png",
+  },
 };
 
 /**

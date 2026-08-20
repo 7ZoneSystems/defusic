@@ -1,6 +1,5 @@
 'use client';
 
-import { Activity } from 'lucide-react';
 import { ReactNode } from 'react';
 import { AnalysisMode } from '@/lib/types';
 import ThemeSwitcher from './ThemeSwitcher';
@@ -18,7 +17,8 @@ export default function Header({ status = 'online', mode, children }: HeaderProp
       style={{ borderBottom: '1px solid var(--border)' }}
     >
       <div className="flex items-center gap-3">
-        <Activity size={18} style={{ color: 'var(--accent)' }} strokeWidth={1.5} />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/favicon.png" alt="" className="h-5 w-auto" />
         <span
           className="font-semibold tracking-widest text-xs uppercase"
           style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-geist-mono)' }}
