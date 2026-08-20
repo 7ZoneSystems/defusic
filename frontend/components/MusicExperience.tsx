@@ -3,6 +3,7 @@
 import { useState, useCallback } from 'react';
 import { HapticConfig, HapticEvent } from '@/lib/haptic-types';
 import { HapticController } from '@/lib/haptic-controller';
+import { useTheme } from '@/lib/theme';
 import HapticPowerVisualizer from '@/components/HapticPowerVisualizer';
 import HapticResponseVisualizer from '@/components/HapticResponseVisualizer';
 import RotaryKnob from '@/components/RotaryKnob';
@@ -37,6 +38,7 @@ export default function MusicExperience({
 }: MusicExperienceProps) {
   const [volume, setVolume] = useState(0.7);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const { resolved } = useTheme();
 
   const handleMasterChange = useCallback((value: number) => {
     onHapticConfigChange({ ...hapticConfig, master_intensity: value });
@@ -107,7 +109,25 @@ export default function MusicExperience({
         </div>
 
         {/* Center — Knob + Controls */}
-        <div className="flex-1 flex flex-col items-center justify-center min-w-0 min-h-0 gap-4 px-4">
+        <div
+          className="flex-1 flex flex-col items-center justify-center min-w-0 min-h-0 gap-4 px-4 relative"
+        >
+          {/* Background icon */}
+          <div
+            aria-hidden
+            style={{
+              position: 'absolute',
+              inset: 0,
+              backgroundImage: `url(${resolved === 'light' ? '/icon_light.png' : '/icon_dark.png'})`,
+              backgroundRepeat: 'no-repeat',
+              backgroundPosition: 'center',
+              backgroundSize: 'clamp(160px, 30vw, 280px) auto',
+              backgroundPositionY: '42%',
+              opacity: 0.08,
+              pointerEvents: 'none',
+            }}
+          />
+
           {/* Haptic knob */}
           <RotaryKnob
             value={hapticConfig.master_intensity * 100}

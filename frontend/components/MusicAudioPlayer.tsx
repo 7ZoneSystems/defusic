@@ -195,14 +195,14 @@ export default function MusicAudioPlayer({
           onClick={togglePlay}
           className="flex items-center justify-center"
           style={{
-            width: 80,
-            height: 80,
+            width: 100,
+            height: 100,
+            background: 'none',
+            border: 'none',
             borderRadius: '2px',
-            background: 'var(--gold-dim)',
-            border: '1px solid var(--gold-glow)',
-            transition: 'transform 180ms ease, box-shadow 180ms ease',
+            transition: 'transform 180ms ease',
             transform: pulse ? 'scale(1.06)' : 'scale(1)',
-            boxShadow: pulse ? '0 0 16px var(--gold-glow)' : 'none',
+            padding: 0,
           }}
           aria-label={playing ? 'Pause' : 'Play'}
         >
@@ -211,8 +211,9 @@ export default function MusicAudioPlayer({
             src={playing ? pauseImg : playImg}
             alt=""
             style={{
-              width: 36,
-              height: 36,
+              width: 64,
+              height: 64,
+              objectFit: 'contain',
               transition: 'opacity 150ms ease',
             }}
           />
