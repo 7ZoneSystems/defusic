@@ -43,13 +43,37 @@ function subscribePref(callback: () => void) {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers
+// External store for system color-scheme (SSR-safe)
 // ---------------------------------------------------------------------------
 
-function resolveSystemTheme(): ResolvedTheme {
+let sysListeners: Array<() => void> = [];
+
+function getSysSnapshot(): ResolvedTheme {
   if (typeof window === 'undefined') return 'dark';
   return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
 }
+
+function getSysServerSnapshot(): ResolvedTheme {
+  return 'dark';
+}
+
+function subscribeSys(callback: () => void) {
+  sysListeners.push(callback);
+  if (typeof window !== 'undefined') {
+    const mql = window.matchMedia('(prefers-color-scheme: light)');
+    const handler = () => callback();
+    mql.addEventListener('change', handler);
+    return () => {
+      sysListeners = sysListeners.filter((l) => l !== callback);
+      mql.removeEventListener('change', handler);
+    };
+  }
+  return () => { sysListeners = sysListeners.filter((l) => l !== callback); };
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function applyTheme(resolved: ResolvedTheme) {
   document.documentElement.setAttribute('data-theme', resolved);
@@ -61,31 +85,20 @@ function applyTheme(resolved: ResolvedTheme) {
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const preference = useSyncExternalStore(subscribePref, getPrefSnapshot, getPrefServerSnapshot);
+  const systemTheme = useSyncExternalStore(subscribeSys, getSysSnapshot, getSysServerSnapshot);
 
-  // Derive resolved theme (no useState, no cascading renders)
-  const resolved: ResolvedTheme = preference === 'system' ? resolveSystemTheme() : preference;
+  const resolved: ResolvedTheme = preference === 'system' ? systemTheme : preference;
 
   // Sync resolved theme to DOM whenever it changes
   useEffect(() => {
     applyTheme(resolved);
   }, [resolved]);
 
-  // Listen for real-time system color-scheme changes when preference is 'system'
-  useEffect(() => {
-    if (preference !== 'system') return;
-    const mql = window.matchMedia('(prefers-color-scheme: light)');
-    const handler = (e: MediaQueryListEvent) => {
-      applyTheme(e.matches ? 'light' : 'dark');
-    };
-    mql.addEventListener('change', handler);
-    return () => mql.removeEventListener('change', handler);
-  }, [preference]);
-
   const setPreference = useCallback((p: ThemePreference) => {
     try {
       localStorage.setItem(STORAGE_KEY, p);
     } catch { /* ignore */ }
-    applyTheme(p === 'system' ? resolveSystemTheme() : p);
+    applyTheme(p === 'system' ? getSysSnapshot() : p);
     emitPrefChange();
   }, []);
 
