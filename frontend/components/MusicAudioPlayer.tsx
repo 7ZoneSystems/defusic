@@ -173,9 +173,9 @@ export default function MusicAudioPlayer({
       </div>
 
       {/* Controls row: volume | play | haptics */}
-      <div className="flex items-center justify-between w-full">
-        {/* Volume */}
-        <div className="flex items-center gap-1.5 shrink-0">
+      <div className="flex items-center justify-center w-full relative">
+        {/* Volume — left */}
+        <div className="flex items-center gap-1.5 shrink-0 absolute left-0">
           <Volume2 size={14} style={{ color: 'var(--text-muted)' }} />
           <input
             type="range"
@@ -190,13 +190,13 @@ export default function MusicAudioPlayer({
           />
         </div>
 
-        {/* Play/Pause — large centered button */}
+        {/* Play/Pause — large centered */}
         <button
           onClick={togglePlay}
           className="flex items-center justify-center"
           style={{
-            width: 56,
-            height: 56,
+            width: 80,
+            height: 80,
             borderRadius: '2px',
             background: 'var(--gold-dim)',
             border: '1px solid var(--gold-glow)',
@@ -211,17 +211,17 @@ export default function MusicAudioPlayer({
             src={playing ? pauseImg : playImg}
             alt=""
             style={{
-              width: 24,
-              height: 24,
+              width: 36,
+              height: 36,
               transition: 'opacity 150ms ease',
             }}
           />
         </button>
 
-        {/* Haptic settings */}
+        {/* Haptic settings — right */}
         <button
           onClick={onHapticSettingsClick}
-          className="p-2 flex items-center justify-center shrink-0"
+          className="p-2 flex items-center justify-center shrink-0 absolute right-0"
           style={{
             color: hapticEnabled ? 'var(--success)' : 'var(--text-muted)',
             border: '1px solid var(--border)',
