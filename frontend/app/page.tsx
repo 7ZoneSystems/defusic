@@ -1,14 +1,12 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { AlertTriangle, FileAudio } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 import Header from '@/components/Header';
 import TrackUpload from '@/components/TrackUpload';
 import ModeSelector from '@/components/ModeSelector';
-import MetricsStrip from '@/components/MetricsStrip';
 import DrumMetricsStrip from '@/components/DrumMetricsStrip';
 import Timeline from '@/components/Timeline';
-import EventInspector from '@/components/EventInspector';
 import DrumEventInspector from '@/components/DrumEventInspector';
 import PlaybackControls from '@/components/PlaybackControls';
 import DiagnosticPlayer from '@/components/DiagnosticPlayer';
@@ -425,37 +423,35 @@ export default function Home() {
               style={{ borderBottom: '1px solid var(--border)' }}
             >
               <div className="flex items-center gap-3 min-w-0">
-                <FileAudio size={14} style={{ color: 'var(--accent)' }} />
                 <span className="text-sm truncate" style={{ color: 'var(--text-primary)' }}>
                   {result.source.filename}
                 </span>
-                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                  {result.source.duration_seconds.toFixed(1)}s / {result.source.sample_rate} Hz
-                </span>
-                <span
-                  className="text-xs px-1.5 py-0.5"
-                  style={{
-                    color: isDrumming ? 'var(--event-hihat)' : 'var(--accent)',
-                    border: `1px solid ${isDrumming ? 'var(--event-hihat)' : 'var(--accent)'}`,
-                    borderRadius: '2px',
-                    fontFamily: 'var(--font-geist-mono)',
-                  }}
-                >
-                  {isDrumming ? 'DRUMMING' : 'MUSIC'}
-                </span>
+                {isDrumming && (
+                  <span
+                    className="text-xs px-1.5 py-0.5"
+                    style={{
+                      color: 'var(--event-hihat)',
+                      border: '1px solid var(--event-hihat)',
+                      borderRadius: '2px',
+                      fontFamily: 'var(--font-geist-mono)',
+                    }}
+                  >
+                    DRUMMING
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-2">
-                {hapticTimeline && (
+                {isDrumming && hapticTimeline && (
                   <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
                     {hapticTimeline.events.length} haptic events
                   </span>
                 )}
-                {result.warnings.length > 0 && (
+                {isDrumming && result.warnings.length > 0 && (
                   <span className="text-xs" style={{ color: 'var(--warning)' }}>
                     {result.warnings.length} warning{result.warnings.length > 1 ? 's' : ''}
                   </span>
                 )}
-                {jobId && (
+                {isDrumming && jobId && (
                   <a
                     href={getJsonDownloadUrl(jobId)}
                     className="px-2 py-1 text-xs"
@@ -485,31 +481,29 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Metrics */}
-            {isDrumming ? (
-              <DrumMetricsStrip result={result} />
-            ) : (
-              <MetricsStrip result={result} />
-            )}
-
-            {/* Warnings */}
-            {result.warnings.length > 0 && (
-              <div
-                className="px-4 py-2 flex items-start gap-2"
-                style={{ background: 'color-mix(in srgb, var(--warning) 8%, transparent)', borderBottom: '1px solid var(--border)' }}
-              >
-                <AlertTriangle size={12} style={{ color: 'var(--warning)', marginTop: '2px' }} />
-                <div className="flex-1">
-                  {result.warnings.map((w, i) => (
-                    <p key={i} className="text-xs" style={{ color: 'var(--warning)' }}>{w}</p>
-                  ))}
-                </div>
-              </div>
+            {/* Drumming-only: Metrics, Warnings */}
+            {isDrumming && (
+              <>
+                <DrumMetricsStrip result={result} />
+                {result.warnings.length > 0 && (
+                  <div
+                    className="px-4 py-2 flex items-start gap-2"
+                    style={{ background: 'color-mix(in srgb, var(--warning) 8%, transparent)', borderBottom: '1px solid var(--border)' }}
+                  >
+                    <AlertTriangle size={12} style={{ color: 'var(--warning)', marginTop: '2px' }} />
+                    <div className="flex-1">
+                      {result.warnings.map((w, i) => (
+                        <p key={i} className="text-xs" style={{ color: 'var(--warning)' }}>{w}</p>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
 
             {/* Main content area */}
             <div className="flex-1 overflow-auto p-4 flex flex-col gap-4">
-              {/* Dual waveform for drumming mode */}
+              {/* Drumming-only: Dual waveform */}
               {isDrumming && jobId && (
                 <DualWaveform
                   originalData={originalWaveform}
@@ -522,8 +516,10 @@ export default function Home() {
                 />
               )}
 
-              {/* Timeline */}
-              <Timeline result={result} currentTime={currentTime} onSeek={setCurrentTime} />
+              {/* Drumming-only: Timeline */}
+              {isDrumming && (
+                <Timeline result={result} currentTime={currentTime} onSeek={setCurrentTime} />
+              )}
 
               {/* Playback */}
               {jobId && isDrumming && (
@@ -562,7 +558,7 @@ export default function Home() {
                 onConfigChange={setHapticConfig}
               />
 
-              {/* Drum pattern view (drumming mode) */}
+              {/* Drumming-only: Drum pattern + Event inspector */}
               {isDrumming && result.drum_events_raw.length > 0 && (
                 <DrumPatternView
                   drumEvents={result.drum_events_raw}
@@ -570,11 +566,8 @@ export default function Home() {
                 />
               )}
 
-              {/* Event Inspector */}
-              {isDrumming ? (
+              {isDrumming && (
                 <DrumEventInspector events={result.drum_events_raw} />
-              ) : (
-                <EventInspector events={result.events} />
               )}
             </div>
           </div>
