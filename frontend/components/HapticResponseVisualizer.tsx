@@ -8,8 +8,8 @@ interface HapticResponseVisualizerProps {
 }
 
 const MAX_DURATION_MS = 250;
-const RING_COUNT = 5;
-const DECAY_RATE = 0.88;
+const RING_COUNT = 7;
+const DECAY_RATE = 0.94;
 
 export default function HapticResponseVisualizer({ lastEvent }: HapticResponseVisualizerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -61,9 +61,9 @@ export default function HapticResponseVisualizer({ lastEvent }: HapticResponseVi
         rings[i] = ring * DECAY_RATE;
         if (rings[i] < 0.01) rings[i] = 0;
 
-        const radius = maxRadius * (0.2 + i * 0.18);
-        const alpha = 0.15 + rings[i] * 0.85;
-        const lineWidth = 1 + rings[i] * 3;
+        const radius = maxRadius * (0.15 + i * 0.12);
+        const alpha = 0.25 + rings[i] * 0.75;
+        const lineWidth = 2 + rings[i] * 5;
 
         ctx.beginPath();
         ctx.arc(centerX, h / 2, radius, 0, Math.PI * 2);

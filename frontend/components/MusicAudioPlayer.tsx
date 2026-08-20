@@ -175,7 +175,7 @@ export default function MusicAudioPlayer({
       {/* Controls row: volume | play | haptics */}
       <div className="flex items-center justify-center w-full relative">
         {/* Volume — left */}
-        <div className="flex items-center gap-1.5 shrink-0 absolute left-0">
+        <div className="flex items-center gap-1.5 shrink-0 absolute" style={{ left: '16px' }}>
           <Volume2 size={14} style={{ color: 'var(--text-muted)' }} />
           <input
             type="range"
@@ -222,8 +222,9 @@ export default function MusicAudioPlayer({
         {/* Haptic settings — right */}
         <button
           onClick={onHapticSettingsClick}
-          className="p-2 flex items-center justify-center shrink-0 absolute right-0"
+          className="p-2 flex items-center justify-center shrink-0 absolute"
           style={{
+            right: '16px',
             color: hapticEnabled ? 'var(--success)' : 'var(--text-muted)',
             border: '1px solid var(--border)',
             borderRadius: '2px',
