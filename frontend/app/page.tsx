@@ -294,7 +294,7 @@ export default function Home() {
                 <img
                   src={resolved === 'light' ? '/icon_light.png' : '/icon_dark.png'}
                   alt="HearBeat"
-                  className="mx-auto mb-4 w-28 h-auto sm:w-36 md:w-44"
+                  className="mx-auto mb-4 h-auto w-[clamp(112px,40vw,200px)] sm:w-[clamp(140px,35vw,260px)] md:w-[clamp(160px,28vw,300px)]"
                 />
                 <h1
                   className="text-lg font-semibold tracking-wider uppercase mb-2"
