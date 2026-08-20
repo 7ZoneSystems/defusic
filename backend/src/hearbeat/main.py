@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import shutil
 import tempfile
 import uuid
 from pathlib import Path
 
+import httpx
 import numpy as np
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile, Cookie, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
 from hearbeat.config import API_HOST, API_PORT, MAX_UPLOAD_MB, OUTPUT_DIR
 from hearbeat.haptic_config import HapticConfig, get_preset, list_presets
@@ -26,6 +28,7 @@ from hearbeat.models import (
     LoudnessData,
 )
 from hearbeat.pipeline import analyze_file
+from hearbeat import cohesivity as coh
 
 logger = logging.getLogger(__name__)
 
@@ -564,6 +567,367 @@ def _apply_config_overrides(config: HapticConfig, update: HapticConfigUpdate) ->
         config.adaptive_enabled = update.adaptive_enabled
     if update.adaptive_gain_strength is not None:
         config.adaptive_gain_strength = update.adaptive_gain_strength
+
+
+# --- Auth endpoints ---
+
+
+@app.get("/auth/login")
+async def auth_login(return_to: str = "/") -> RedirectResponse:
+    """Redirect to Cohesivity Google login."""
+    login_url = coh.get_login_url(return_to=return_to)
+    return RedirectResponse(url=login_url)
+
+
+@app.get("/auth/callback")
+async def auth_callback(
+    access_token: str | None = Query(None),
+    refresh_token: str | None = Query(None),
+    return_to: str = Query("/"),
+    error: str | None = Query(None),
+) -> RedirectResponse:
+    """Handle OAuth callback. Sets httpOnly cookies and redirects."""
+    if error or not access_token:
+        return RedirectResponse(url=f"/?auth_error={error or 'no_token'}")
+
+    res = RedirectResponse(url=return_to)
+    res.set_cookie(
+        "access_token", access_token,
+        httponly=True, secure=True, samesite="lax", path="/", max_age=3600,
+    )
+    if refresh_token:
+        res.set_cookie(
+            "refresh_token", refresh_token,
+            httponly=True, secure=True, samesite="lax", path="/", max_age=30 * 86400,
+        )
+    return res
+
+
+@app.get("/auth/me")
+async def auth_me(
+    access_token: str | None = Cookie(None),
+    refresh_token: str | None = Cookie(None),
+) -> JSONResponse:
+    """Get current authenticated user. Returns 401 if not logged in."""
+    user, new_tokens = await coh.get_auth_user(access_token, refresh_token)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    resp = JSONResponse(content={"user": user})
+    if new_tokens:
+        resp.set_cookie(
+            "access_token", new_tokens["access_token"],
+            httponly=True, secure=True, samesite="lax", path="/", max_age=3600,
+        )
+        resp.set_cookie(
+            "refresh_token", new_tokens["refresh_token"],
+            httponly=True, secure=True, samesite="lax", path="/", max_age=30 * 86400,
+        )
+    return resp
+
+
+@app.post("/auth/logout")
+async def auth_logout(
+    refresh_token: str | None = Cookie(None),
+) -> JSONResponse:
+    """Log out: revoke refresh token and clear cookies."""
+    if refresh_token:
+        try:
+            tid = coh.get_tenant_id()
+            async with httpx.AsyncClient(timeout=10) as client:
+                await client.post(
+                    f"{coh.COHESIVITY_BASE}/edge/auth/{tid}/logout",
+                    json={"refresh_token": refresh_token},
+                    headers={"User-Agent": "hearbeat-app/1.0"},
+                )
+        except Exception:
+            pass
+
+    resp = JSONResponse(content={"status": "ok"})
+    resp.delete_cookie("access_token", path="/")
+    resp.delete_cookie("refresh_token", path="/")
+    return resp
+
+
+# --- Library endpoints ---
+
+
+@app.get("/library/songs")
+async def list_songs(
+    access_token: str | None = Cookie(None),
+    refresh_token: str | None = Cookie(None),
+) -> JSONResponse:
+    """List all songs for the authenticated user."""
+    user, new_tokens = await coh.get_auth_user(access_token, refresh_token)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    db_user = await coh.get_user_by_cohesivity_id(user["id"])
+    if not db_user:
+        return JSONResponse(content={"songs": []})
+
+    rows = await coh.db_query(
+        """
+        SELECT s.id, s.original_name, s.file_hash, s.file_size, s.duration_seconds,
+               s.analysis_mode, s.created_at, s.last_played,
+               a.id as analysis_id, a.created_at as analysis_created_at
+        FROM user_songs s
+        LEFT JOIN song_analysis a ON a.song_id = s.id
+        WHERE s.user_id = $1
+        ORDER BY s.last_played DESC NULLS LAST, s.created_at DESC
+        """,
+        [db_user["id"]],
+    )
+
+    songs = []
+    for row in rows:
+        songs.append({
+            "id": row["id"],
+            "filename": row["original_name"],
+            "file_hash": row["file_hash"],
+            "file_size": row["file_size"],
+            "duration_seconds": row["duration_seconds"],
+            "analysis_mode": row["analysis_mode"],
+            "has_analysis": row["analysis_id"] is not None,
+            "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
+            "last_played": row["last_played"].isoformat() if row.get("last_played") else None,
+        })
+
+    resp = JSONResponse(content={"songs": songs})
+    if new_tokens:
+        resp.set_cookie(
+            "access_token", new_tokens["access_token"],
+            httponly=True, secure=True, samesite="lax", path="/", max_age=3600,
+        )
+    return resp
+
+
+@app.post("/library/songs")
+async def save_song(
+    file: UploadFile = File(...),
+    mode: str = Query("music", pattern="^(music|drumming)$"),
+    access_token: str | None = Cookie(None),
+    refresh_token: str | None = Cookie(None),
+) -> JSONResponse:
+    """Save an uploaded song to the user's library."""
+    user, new_tokens = await coh.get_auth_user(access_token, refresh_token)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    db_user = await coh.get_user_by_cohesivity_id(user["id"])
+    if not db_user:
+        db_user = await coh.upsert_user(user["id"], user["email"], user.get("name"), user.get("picture"))
+
+    content = await file.read()
+    import hashlib
+    file_hash = hashlib.sha256(content).hexdigest()
+
+    existing = await coh.db_query(
+        "SELECT id FROM user_songs WHERE user_id = $1 AND file_hash = $2",
+        [db_user["id"], file_hash],
+    )
+
+    if existing:
+        song_id = existing[0]["id"]
+        await coh.db_query(
+            "UPDATE user_songs SET last_played = NOW() WHERE id = $1",
+            [song_id],
+        )
+    else:
+        # Get duration
+        duration = None
+        try:
+            import soundfile as sf
+            import io
+            audio_data, sr = sf.read(io.BytesIO(content), dtype="float32")
+            duration = len(audio_data) / sr if audio_data.ndim == 1 else len(audio_data) / sr
+        except Exception:
+            pass
+
+        rows = await coh.db_query(
+            """
+            INSERT INTO user_songs (user_id, filename, original_name, file_hash, file_size, duration_seconds, analysis_mode, last_played)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+            RETURNING id
+            """,
+            [db_user["id"], file.filename, file.filename, file_hash, len(content), duration, mode],
+        )
+        song_id = rows[0]["id"]
+
+    resp = JSONResponse(content={"song_id": song_id, "file_hash": file_hash})
+    if new_tokens:
+        resp.set_cookie(
+            "access_token", new_tokens["access_token"],
+            httponly=True, secure=True, samesite="lax", path="/", max_age=3600,
+        )
+    return resp
+
+
+@app.delete("/library/songs/{song_id}")
+async def delete_song(
+    song_id: int,
+    access_token: str | None = Cookie(None),
+    refresh_token: str | None = Cookie(None),
+) -> JSONResponse:
+    """Delete a song from the user's library."""
+    user, new_tokens = await coh.get_auth_user(access_token, refresh_token)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    db_user = await coh.get_user_by_cohesivity_id(user["id"])
+    if not db_user:
+        raise HTTPException(404, "User not found")
+
+    rows = await coh.db_query(
+        "DELETE FROM user_songs WHERE id = $1 AND user_id = $2 RETURNING id",
+        [song_id, db_user["id"]],
+    )
+    if not rows:
+        raise HTTPException(404, "Song not found")
+
+    resp = JSONResponse(content={"status": "deleted"})
+    if new_tokens:
+        resp.set_cookie(
+            "access_token", new_tokens["access_token"],
+            httponly=True, secure=True, samesite="lax", path="/", max_age=3600,
+        )
+    return resp
+
+
+@app.post("/library/songs/{song_id}/play")
+async def mark_song_played(
+    song_id: int,
+    access_token: str | None = Cookie(None),
+    refresh_token: str | None = Cookie(None),
+) -> JSONResponse:
+    """Mark a song as last played (for sort order)."""
+    user, _ = await coh.get_auth_user(access_token, refresh_token)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    db_user = await coh.get_user_by_cohesivity_id(user["id"])
+    if not db_user:
+        raise HTTPException(404, "User not found")
+
+    await coh.db_query(
+        "UPDATE user_songs SET last_played = NOW() WHERE id = $1 AND user_id = $2",
+        [song_id, db_user["id"]],
+    )
+    return JSONResponse(content={"status": "ok"})
+
+
+# --- Presets library endpoints ---
+
+
+@app.get("/library/presets")
+async def list_user_presets(
+    access_token: str | None = Cookie(None),
+    refresh_token: str | None = Cookie(None),
+) -> JSONResponse:
+    """List saved haptic presets for the authenticated user."""
+    user, new_tokens = await coh.get_auth_user(access_token, refresh_token)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    db_user = await coh.get_user_by_cohesivity_id(user["id"])
+    if not db_user:
+        return JSONResponse(content={"presets": []})
+
+    rows = await coh.db_query(
+        """
+        SELECT id, name, description, config, is_default, created_at, updated_at
+        FROM haptic_presets
+        WHERE user_id = $1
+        ORDER BY is_default DESC, name ASC
+        """,
+        [db_user["id"]],
+    )
+
+    presets = []
+    for row in rows:
+        presets.append({
+            "id": row["id"],
+            "name": row["name"],
+            "description": row["description"],
+            "config": row["config"],
+            "is_default": row["is_default"],
+            "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
+            "updated_at": row["updated_at"].isoformat() if row.get("updated_at") else None,
+        })
+
+    resp = JSONResponse(content={"presets": presets})
+    if new_tokens:
+        resp.set_cookie(
+            "access_token", new_tokens["access_token"],
+            httponly=True, secure=True, samesite="lax", path="/", max_age=3600,
+        )
+    return resp
+
+
+@app.post("/library/presets")
+async def save_preset(
+    name: str = Query(...),
+    config: dict = ...,
+    description: str | None = None,
+    access_token: str | None = Cookie(None),
+    refresh_token: str | None = Cookie(None),
+) -> JSONResponse:
+    """Save a custom haptic preset."""
+    user, new_tokens = await coh.get_auth_user(access_token, refresh_token)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    db_user = await coh.get_user_by_cohesivity_id(user["id"])
+    if not db_user:
+        raise HTTPException(404, "User not found")
+
+    rows = await coh.db_query(
+        """
+        INSERT INTO haptic_presets (user_id, name, description, config)
+        VALUES ($1, $2, $3, $4)
+        RETURNING id
+        """,
+        [db_user["id"], name, description, json.dumps(config)],
+    )
+
+    resp = JSONResponse(content={"preset_id": rows[0]["id"]})
+    if new_tokens:
+        resp.set_cookie(
+            "access_token", new_tokens["access_token"],
+            httponly=True, secure=True, samesite="lax", path="/", max_age=3600,
+        )
+    return resp
+
+
+@app.delete("/library/presets/{preset_id}")
+async def delete_preset(
+    preset_id: int,
+    access_token: str | None = Cookie(None),
+    refresh_token: str | None = Cookie(None),
+) -> JSONResponse:
+    """Delete a custom haptic preset."""
+    user, new_tokens = await coh.get_auth_user(access_token, refresh_token)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    db_user = await coh.get_user_by_cohesivity_id(user["id"])
+    if not db_user:
+        raise HTTPException(404, "User not found")
+
+    rows = await coh.db_query(
+        "DELETE FROM haptic_presets WHERE id = $1 AND user_id = $2 AND is_default = FALSE RETURNING id",
+        [preset_id, db_user["id"]],
+    )
+    if not rows:
+        raise HTTPException(404, "Preset not found or is default")
+
+    resp = JSONResponse(content={"status": "deleted"})
+    if new_tokens:
+        resp.set_cookie(
+            "access_token", new_tokens["access_token"],
+            httponly=True, secure=True, samesite="lax", path="/", max_age=3600,
+        )
+    return resp
 
 
 def run_server() -> None:

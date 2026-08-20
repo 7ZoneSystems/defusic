@@ -3,6 +3,8 @@ import { HapticTimeline } from './haptic-types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
+// --- Analysis endpoints ---
+
 export async function checkHealth(): Promise<{ status: string; version: string }> {
   const res = await fetch(`${API_URL}/health`);
   if (!res.ok) throw new Error('Backend unavailable');
@@ -82,4 +84,101 @@ export async function getLoudnessProfile(
   const res = await fetch(`${API_URL}/analysis/${jobId}/loudness`);
   if (!res.ok) throw new Error('Failed to fetch loudness profile');
   return res.json();
+}
+
+// --- Library endpoints ---
+
+export interface LibrarySong {
+  id: number;
+  filename: string;
+  file_hash: string;
+  file_size: number;
+  duration_seconds: number | null;
+  analysis_mode: string;
+  has_analysis: boolean;
+  created_at: string | null;
+  last_played: string | null;
+}
+
+export interface LibraryPreset {
+  id: number;
+  name: string;
+  description: string | null;
+  config: Record<string, unknown>;
+  is_default: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export async function fetchLibrarySongs(): Promise<LibrarySong[]> {
+  const res = await fetch(`${API_URL}/library/songs`, {
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error("Failed to fetch songs");
+  const data = await res.json();
+  return data.songs;
+}
+
+export async function saveSongToLibrary(
+  file: File,
+  mode: string = "music"
+): Promise<{ song_id: number; file_hash: string }> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${API_URL}/library/songs?mode=${mode}`, {
+    method: "POST",
+    credentials: "include",
+    body: form,
+  });
+  if (!res.ok) throw new Error("Failed to save song");
+  return res.json();
+}
+
+export async function deleteLibrarySong(songId: number): Promise<void> {
+  const res = await fetch(`${API_URL}/library/songs/${songId}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error("Failed to delete song");
+}
+
+export async function markSongPlayed(songId: number): Promise<void> {
+  await fetch(`${API_URL}/library/songs/${songId}/play`, {
+    method: "POST",
+    credentials: "include",
+  });
+}
+
+export async function fetchLibraryPresets(): Promise<LibraryPreset[]> {
+  const res = await fetch(`${API_URL}/library/presets`, {
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error("Failed to fetch presets");
+  const data = await res.json();
+  return data.presets;
+}
+
+export async function savePresetToLibrary(
+  name: string,
+  config: Record<string, unknown>,
+  description?: string
+): Promise<{ preset_id: number }> {
+  const params = new URLSearchParams({ name });
+  if (description) params.set("description", description);
+  const res = await fetch(`${API_URL}/library/presets?${params}`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config),
+  });
+  if (!res.ok) throw new Error("Failed to save preset");
+  return res.json();
+}
+
+export async function deleteLibraryPreset(presetId: number): Promise<void> {
+  const res = await fetch(`${API_URL}/library/presets/${presetId}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error("Failed to delete preset");
 }

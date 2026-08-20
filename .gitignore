@@ -41,6 +41,9 @@ temp/
 AGENTS.md
 CLAUDE.md
 
+# Cohesivity
+.cohesivity
+
 # Frontend misc
 .pnp
 .pnp.*

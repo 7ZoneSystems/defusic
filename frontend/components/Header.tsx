@@ -3,6 +3,7 @@
 import { ReactNode } from 'react';
 import { AnalysisMode } from '@/lib/types';
 import ThemeSwitcher from './ThemeSwitcher';
+import UserMenu from './UserMenu';
 
 interface HeaderProps {
   status?: 'online' | 'offline' | 'analyzing';
@@ -48,6 +49,7 @@ export default function Header({ status = 'online', mode, children }: HeaderProp
           </span>
         )}
         <ThemeSwitcher />
+        <UserMenu />
         <div className="flex items-center gap-1.5">
           <div
             className="w-1.5 h-1.5 rounded-full"
