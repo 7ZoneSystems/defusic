@@ -6,7 +6,7 @@ import { getOriginalAudioUrl } from '@/lib/api';
 import { HapticController } from '@/lib/haptic-controller';
 import { useTheme } from '@/lib/theme';
 
-interface MusicPlayerBarProps {
+interface MusicAudioPlayerProps {
   jobId: string;
   duration: number;
   currentTime: number;
@@ -18,15 +18,13 @@ interface MusicPlayerBarProps {
   hapticEnabled: boolean;
 }
 
-function formatTime(t: number, compact: boolean) {
+function formatTime(t: number) {
   const m = Math.floor(t / 60);
   const s = Math.floor(t % 60);
-  if (compact) return `${m}:${String(s).padStart(2, '0')}`;
-  const ms = Math.floor((t % 1) * 100);
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(ms).padStart(2, '0')}`;
+  return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-export default function MusicPlayerBar({
+export default function MusicAudioPlayer({
   jobId,
   duration,
   currentTime,
@@ -36,7 +34,7 @@ export default function MusicPlayerBar({
   onVolumeChange,
   onHapticSettingsClick,
   hapticEnabled,
-}: MusicPlayerBarProps) {
+}: MusicAudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const initializedRef = useRef(false);
   const [playing, setPlaying] = useState(false);
@@ -142,64 +140,18 @@ export default function MusicPlayerBar({
   }, []);
 
   return (
-    <div
-      className="flex items-center gap-2 px-3 py-2.5 shrink-0"
-      style={{
-        background: 'var(--bg-surface)',
-        borderTop: '1px solid var(--border)',
-        boxSizing: 'border-box',
-        width: '100%',
-        maxWidth: '100vw',
-        overflowX: 'hidden',
-      }}
-    >
+    <div className="flex flex-col items-center gap-3 w-full" style={{ maxWidth: 'min(480px, 80vw)' }}>
       <audio ref={audioRef} preload="auto" />
 
-      {/* Play/Pause — theme-aware image with transition */}
-      <button
-        onClick={togglePlay}
-        className="shrink-0 flex items-center justify-center"
-        style={{
-          width: 40,
-          height: 40,
-          borderRadius: '2px',
-          background: playing ? 'var(--gold-dim)' : 'var(--gold-dim)',
-          border: '1px solid var(--gold-glow)',
-          transition: 'background 180ms ease, transform 180ms ease, box-shadow 180ms ease',
-          transform: pulse ? 'scale(1.08)' : 'scale(1)',
-          boxShadow: pulse ? '0 0 12px var(--gold-glow)' : 'none',
-        }}
-        aria-label={playing ? 'Pause' : 'Play'}
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={playing ? pauseImg : playImg}
-          alt=""
-          style={{
-            width: 18,
-            height: 18,
-            opacity: 1,
-            transition: 'opacity 150ms ease',
-          }}
-        />
-      </button>
+      {/* Time + Progress */}
+      <div className="flex items-center gap-3 w-full">
+        <span
+          className="text-xs text-right shrink-0 tabular-nums"
+          style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-geist-mono)', width: '36px' }}
+        >
+          {formatTime(currentTime)}
+        </span>
 
-      {/* Current time */}
-      <span
-        className="text-xs text-right shrink-0 hidden sm:inline"
-        style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-geist-mono)', width: '64px' }}
-      >
-        {formatTime(currentTime, false)}
-      </span>
-      <span
-        className="text-xs text-right shrink-0 sm:hidden"
-        style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-geist-mono)', width: '36px' }}
-      >
-        {formatTime(currentTime, true)}
-      </span>
-
-      {/* Progress — flexible */}
-      <div className="flex-1 min-w-0 relative" style={{ width: 0 }}>
         <input
           type="range"
           min={0}
@@ -207,59 +159,80 @@ export default function MusicPlayerBar({
           step={0.01}
           value={currentTime}
           onChange={handleSeek}
-          className="w-full"
-          style={{
-            height: 4,
-            accentColor: 'var(--gold)',
-          }}
+          className="flex-1 min-w-0"
+          style={{ height: 4, accentColor: 'var(--gold)' }}
           aria-label="Seek"
         />
+
+        <span
+          className="text-xs shrink-0 tabular-nums"
+          style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-geist-mono)', width: '36px' }}
+        >
+          {formatTime(duration)}
+        </span>
       </div>
 
-      {/* Duration */}
-      <span
-        className="text-xs shrink-0 hidden sm:inline"
-        style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-geist-mono)', width: '64px' }}
-      >
-        {formatTime(duration, false)}
-      </span>
-      <span
-        className="text-xs shrink-0 sm:hidden"
-        style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-geist-mono)', width: '36px' }}
-      >
-        {formatTime(duration, true)}
-      </span>
+      {/* Controls row: volume | play | haptics */}
+      <div className="flex items-center justify-between w-full">
+        {/* Volume */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <Volume2 size={14} style={{ color: 'var(--text-muted)' }} />
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.01}
+            value={volume}
+            onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
+            className="w-20"
+            style={{ height: 3, accentColor: 'var(--gold)' }}
+            aria-label="Song volume"
+          />
+        </div>
 
-      {/* Volume */}
-      <div className="flex items-center gap-1 shrink-0">
-        <Volume2 size={12} style={{ color: 'var(--text-muted)' }} />
-        <input
-          type="range"
-          min={0}
-          max={1}
-          step={0.01}
-          value={volume}
-          onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
-          className="w-16 sm:w-20"
-          style={{ height: 3, accentColor: 'var(--gold)' }}
-          aria-label="Song volume"
-        />
+        {/* Play/Pause — large centered button */}
+        <button
+          onClick={togglePlay}
+          className="flex items-center justify-center"
+          style={{
+            width: 56,
+            height: 56,
+            borderRadius: '2px',
+            background: 'var(--gold-dim)',
+            border: '1px solid var(--gold-glow)',
+            transition: 'transform 180ms ease, box-shadow 180ms ease',
+            transform: pulse ? 'scale(1.06)' : 'scale(1)',
+            boxShadow: pulse ? '0 0 16px var(--gold-glow)' : 'none',
+          }}
+          aria-label={playing ? 'Pause' : 'Play'}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={playing ? pauseImg : playImg}
+            alt=""
+            style={{
+              width: 24,
+              height: 24,
+              transition: 'opacity 150ms ease',
+            }}
+          />
+        </button>
+
+        {/* Haptic settings */}
+        <button
+          onClick={onHapticSettingsClick}
+          className="p-2 flex items-center justify-center shrink-0"
+          style={{
+            color: hapticEnabled ? 'var(--success)' : 'var(--text-muted)',
+            border: '1px solid var(--border)',
+            borderRadius: '2px',
+            transition: 'border-color 180ms ease',
+          }}
+          aria-label="Haptic settings"
+        >
+          <Vibrate size={16} />
+        </button>
       </div>
-
-      {/* Haptic settings button */}
-      <button
-        onClick={onHapticSettingsClick}
-        className="shrink-0 p-1.5 flex items-center justify-center"
-        style={{
-          color: hapticEnabled ? 'var(--success)' : 'var(--text-muted)',
-          border: '1px solid var(--border)',
-          borderRadius: '2px',
-          transition: 'border-color 180ms ease, color 180ms ease',
-        }}
-        aria-label="Haptic settings"
-      >
-        <Vibrate size={14} />
-      </button>
     </div>
   );
 }

@@ -6,7 +6,7 @@ import { HapticController } from '@/lib/haptic-controller';
 import HapticPowerVisualizer from '@/components/HapticPowerVisualizer';
 import HapticResponseVisualizer from '@/components/HapticResponseVisualizer';
 import RotaryKnob from '@/components/RotaryKnob';
-import MusicPlayerBar from '@/components/MusicPlayerBar';
+import MusicAudioPlayer from '@/components/MusicAudioPlayer';
 import HapticSettingsDialog from '@/components/HapticSettingsDialog';
 import ThemeSwitcher from '@/components/ThemeSwitcher';
 
@@ -106,11 +106,25 @@ export default function MusicExperience({
           />
         </div>
 
-        {/* Center — Master control */}
-        <div className="flex-1 flex items-center justify-center min-w-0 min-h-0">
+        {/* Center — Knob + Controls */}
+        <div className="flex-1 flex flex-col items-center justify-center min-w-0 min-h-0 gap-4 px-4">
+          {/* Haptic knob */}
           <RotaryKnob
             value={hapticConfig.master_intensity * 100}
             onChange={(pct) => handleMasterChange(pct / 100)}
+          />
+
+          {/* Player controls — volume | play | haptics */}
+          <MusicAudioPlayer
+            jobId={jobId}
+            duration={duration}
+            currentTime={currentTime}
+            onTimeUpdate={onTimeUpdate}
+            hapticController={hapticController}
+            volume={volume}
+            onVolumeChange={setVolume}
+            onHapticSettingsClick={() => setSettingsOpen(true)}
+            hapticEnabled={hapticConfig.master_intensity > 0}
           />
         </div>
 
@@ -125,19 +139,6 @@ export default function MusicExperience({
           <HapticResponseVisualizer lastEvent={lastEvent} />
         </div>
       </div>
-
-      {/* Bottom — Player bar */}
-      <MusicPlayerBar
-        jobId={jobId}
-        duration={duration}
-        currentTime={currentTime}
-        onTimeUpdate={onTimeUpdate}
-        hapticController={hapticController}
-        volume={volume}
-        onVolumeChange={setVolume}
-        onHapticSettingsClick={() => setSettingsOpen(true)}
-        hapticEnabled={hapticConfig.master_intensity > 0}
-      />
 
       {/* Haptic settings popup */}
       <HapticSettingsDialog

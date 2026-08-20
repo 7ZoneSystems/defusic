@@ -29,6 +29,11 @@
   --accent-surface: rgba(74, 158, 206, 0.12);
   --accent-text: #4A9ECE;
 
+  /* Golden accent */
+  --gold: #CEAE4A;
+  --gold-dim: rgba(206, 174, 74, 0.12);
+  --gold-glow: rgba(206, 174, 74, 0.25);
+
   /* Status */
   --danger: #CE4A4A;
   --success: #4ACE7A;
@@ -85,6 +90,10 @@
   --accent-dim: #3D8DBD;
   --accent-surface: rgba(40, 120, 168, 0.08);
   --accent-text: #2878A8;
+
+  --gold: #A07A2A;
+  --gold-dim: rgba(160, 122, 42, 0.08);
+  --gold-glow: rgba(160, 122, 42, 0.20);
 
   --danger: #B53A3A;
   --success: #2A9E5A;
