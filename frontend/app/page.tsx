@@ -418,7 +418,6 @@ export default function Home() {
         {state === 'complete' && result && !isDrumming && jobId && (
           <MusicExperience
             jobId={jobId}
-            filename={result.source.filename}
             duration={result.source.duration_seconds}
             currentTime={currentTime}
             onTimeUpdate={setCurrentTime}

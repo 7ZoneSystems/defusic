@@ -39,6 +39,8 @@ export default function MusicPlayerBar({
   const audioRef = useRef<HTMLAudioElement>(null);
   const initializedRef = useRef(false);
   const [playing, setPlaying] = useState(false);
+  const onTimeUpdateRef = useRef(onTimeUpdate);
+  useEffect(() => { onTimeUpdateRef.current = onTimeUpdate; });
 
   const audioSrc = getOriginalAudioUrl(jobId);
 
@@ -88,6 +90,7 @@ export default function MusicPlayerBar({
       setPlaying(false);
       hapticController.stop();
     };
+    const handleTimeUpdate = () => onTimeUpdateRef.current(audio.currentTime);
 
     audio.addEventListener('play', handlePlay);
     audio.addEventListener('pause', handlePause);
@@ -97,8 +100,6 @@ export default function MusicPlayerBar({
     audio.addEventListener('waiting', handleWaiting);
     audio.addEventListener('stalled', handleStalled);
     audio.addEventListener('error', handleError);
-
-    const handleTimeUpdate = () => onTimeUpdate(audio.currentTime);
     audio.addEventListener('timeupdate', handleTimeUpdate);
 
     return () => {
@@ -112,7 +113,7 @@ export default function MusicPlayerBar({
       audio.removeEventListener('error', handleError);
       audio.removeEventListener('timeupdate', handleTimeUpdate);
     };
-  }, [hapticController, onTimeUpdate]);
+  }, [hapticController]);
 
   const togglePlay = useCallback(() => {
     const audio = audioRef.current;
@@ -126,11 +127,11 @@ export default function MusicPlayerBar({
 
   const handleSeek = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const time = parseFloat(e.target.value);
-    onTimeUpdate(time);
+    onTimeUpdateRef.current(time);
     if (audioRef.current) {
       audioRef.current.currentTime = time;
     }
-  }, [onTimeUpdate]);
+  }, []);
 
   return (
     <div

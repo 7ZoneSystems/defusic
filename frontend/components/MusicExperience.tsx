@@ -8,10 +8,10 @@ import HapticResponseVisualizer from '@/components/HapticResponseVisualizer';
 import RotaryKnob from '@/components/RotaryKnob';
 import MusicPlayerBar from '@/components/MusicPlayerBar';
 import HapticSettingsDialog from '@/components/HapticSettingsDialog';
+import ThemeSwitcher from '@/components/ThemeSwitcher';
 
 interface MusicExperienceProps {
   jobId: string;
-  filename: string;
   duration: number;
   currentTime: number;
   onTimeUpdate: (time: number) => void;
@@ -25,7 +25,6 @@ interface MusicExperienceProps {
 
 export default function MusicExperience({
   jobId,
-  filename,
   duration,
   currentTime,
   onTimeUpdate,
@@ -48,29 +47,47 @@ export default function MusicExperience({
       className="fixed inset-0 flex flex-col z-40"
       style={{ background: 'var(--bg-primary)' }}
     >
-      {/* Track info bar */}
+      {/* Header */}
       <div
-        className="flex items-center justify-between px-4 py-2 shrink-0"
+        className="flex items-center justify-between px-6 py-3 shrink-0"
         style={{
-          background: 'var(--bg-surface)',
+          background: 'var(--glass-bg)',
+          backdropFilter: 'blur(12px)',
+          WebkitBackdropFilter: 'blur(12px)',
           borderBottom: '1px solid var(--border)',
         }}
       >
-        <span className="text-sm truncate" style={{ color: 'var(--text-primary)' }}>
-          {filename}
-        </span>
-        <button
-          onClick={onReset}
-          className="px-2 py-1 text-xs"
-          style={{
-            color: 'var(--text-muted)',
-            border: '1px solid var(--border)',
-            borderRadius: '2px',
-            fontFamily: 'var(--font-geist-mono)',
-          }}
-        >
-          New track
-        </button>
+        <div className="flex items-center gap-3">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/favicon.png" alt="" className="h-5 w-auto" />
+          <span
+            className="font-semibold tracking-widest text-xs uppercase"
+            style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-geist-mono)' }}
+          >
+            HEARBEAT
+          </span>
+          <span
+            className="text-xs"
+            style={{ color: 'var(--text-muted)' }}
+          >
+            Music
+          </span>
+        </div>
+        <div className="flex items-center gap-3">
+          <ThemeSwitcher />
+          <button
+            onClick={onReset}
+            className="px-2 py-1 text-xs"
+            style={{
+              color: 'var(--text-muted)',
+              border: '1px solid var(--border)',
+              borderRadius: '2px',
+              fontFamily: 'var(--font-geist-mono)',
+            }}
+          >
+            New track
+          </button>
+        </div>
       </div>
 
       {/* Main area: left visualizer | center | right visualizer */}
