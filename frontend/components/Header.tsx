@@ -13,7 +13,7 @@ interface HeaderProps {
 export default function Header({ status = 'online', mode, children }: HeaderProps) {
   return (
     <header
-      className="glass-panel flex items-center justify-between px-6 py-3"
+      className="glass-panel flex items-center justify-between px-6 py-3 shrink-0"
       style={{ borderBottom: '1px solid var(--border)' }}
     >
       <div className="flex items-center gap-3">

@@ -8,11 +8,11 @@ import ModeSelector from '@/components/ModeSelector';
 import DrumMetricsStrip from '@/components/DrumMetricsStrip';
 import Timeline from '@/components/Timeline';
 import DrumEventInspector from '@/components/DrumEventInspector';
-import PlaybackControls from '@/components/PlaybackControls';
 import DiagnosticPlayer from '@/components/DiagnosticPlayer';
 import DualWaveform from '@/components/DualWaveform';
 import DrumPatternView from '@/components/DrumPatternView';
 import AnalysisProgress from '@/components/AnalysisProgress';
+import MusicExperience from '@/components/MusicExperience';
 import HapticPanel from '@/components/HapticPanel';
 import { analyzeFile, checkHealth, getHapticTimeline, getJsonDownloadUrl, getWaveformData } from '@/lib/api';
 import { AnalysisResult, AnalysisMode, AppState, DiagnosticLayer, WaveformData } from '@/lib/types';
@@ -414,8 +414,25 @@ export default function Home() {
           </div>
         )}
 
-        {/* Analysis Workspace */}
-        {state === 'complete' && result && (
+        {/* Analysis Workspace — Music mode */}
+        {state === 'complete' && result && !isDrumming && jobId && (
+          <MusicExperience
+            jobId={jobId}
+            filename={result.source.filename}
+            duration={result.source.duration_seconds}
+            currentTime={currentTime}
+            onTimeUpdate={setCurrentTime}
+            onReset={handleReset}
+            hapticController={hapticController}
+            realHardware={realHardware}
+            lastEvent={hapticLastEvent}
+            hapticConfig={hapticConfig}
+            onHapticConfigChange={setHapticConfig}
+          />
+        )}
+
+        {/* Analysis Workspace — Drumming mode */}
+        {state === 'complete' && result && isDrumming && (
           <div className="flex-1 flex flex-col overflow-hidden">
             {/* Track info bar */}
             <div
@@ -522,7 +539,7 @@ export default function Home() {
               )}
 
               {/* Playback */}
-              {jobId && isDrumming && (
+              {jobId && (
                 <DiagnosticPlayer
                   jobId={jobId}
                   duration={result.source.duration_seconds}
@@ -535,16 +552,6 @@ export default function Home() {
                   diagnosticVolume={diagnosticVolume}
                   onOriginalVolumeChange={setOriginalVolume}
                   onDiagnosticVolumeChange={setDiagnosticVolume}
-                  hapticController={hapticController}
-                />
-              )}
-
-              {jobId && !isDrumming && (
-                <PlaybackControls
-                  jobId={jobId}
-                  duration={result.source.duration_seconds}
-                  currentTime={currentTime}
-                  onTimeUpdate={setCurrentTime}
                   hapticController={hapticController}
                 />
               )}
