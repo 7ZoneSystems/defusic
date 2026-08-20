@@ -98,6 +98,9 @@ export default function MusicPlayerBar({
     audio.addEventListener('stalled', handleStalled);
     audio.addEventListener('error', handleError);
 
+    const handleTimeUpdate = () => onTimeUpdate(audio.currentTime);
+    audio.addEventListener('timeupdate', handleTimeUpdate);
+
     return () => {
       audio.removeEventListener('play', handlePlay);
       audio.removeEventListener('pause', handlePause);
@@ -107,8 +110,9 @@ export default function MusicPlayerBar({
       audio.removeEventListener('waiting', handleWaiting);
       audio.removeEventListener('stalled', handleStalled);
       audio.removeEventListener('error', handleError);
+      audio.removeEventListener('timeupdate', handleTimeUpdate);
     };
-  }, [hapticController]);
+  }, [hapticController, onTimeUpdate]);
 
   const togglePlay = useCallback(() => {
     const audio = audioRef.current;
