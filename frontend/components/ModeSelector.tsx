@@ -1,7 +1,7 @@
 'use client';
 
-import { Music, Drum } from 'lucide-react';
 import { AnalysisMode } from '@/lib/types';
+import { useTheme } from '@/lib/theme';
 
 interface ModeSelectorProps {
   selected: AnalysisMode;
@@ -9,54 +9,44 @@ interface ModeSelectorProps {
   disabled?: boolean;
 }
 
-const MODES: { value: AnalysisMode; label: string; description: string; icon: React.ReactNode }[] = [
-  {
-    value: 'music',
-    label: 'Music Enjoyment',
-    description: 'Beat and bass analysis for musical structure',
-    icon: <Music size={16} strokeWidth={1.5} />,
-  },
-  {
-    value: 'drumming',
-    label: 'Drumming',
-    description: 'Drum-focused analysis with diagnostic playback',
-    icon: <Drum size={16} strokeWidth={1.5} />,
-  },
-];
-
 export default function ModeSelector({ selected, onSelect, disabled }: ModeSelectorProps) {
+  const { resolved } = useTheme();
+
+  const modes: { value: AnalysisMode; label: string; img: string }[] = [
+    {
+      value: 'music',
+      label: 'Enjoy Music',
+      img: resolved === 'light' ? '/Enjoy_music_light.png' : '/Enjoy_music_dark.png',
+    },
+    {
+      value: 'drumming',
+      label: "Let's Drum",
+      img: resolved === 'light' ? '/drumming_light.png' : '/drumming_dark.png',
+    },
+  ];
+
   return (
     <div className="flex flex-col gap-2">
-      <span
-        className="text-xs uppercase tracking-wider"
-        style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-geist-mono)' }}
-      >
-        Analysis Mode
-      </span>
-      <div className="flex gap-2">
-        {MODES.map((mode) => (
+      <div className="flex flex-col sm:flex-row gap-3">
+        {modes.map((m) => (
           <button
-            key={mode.value}
-            onClick={() => onSelect(mode.value)}
+            key={m.value}
+            onClick={() => onSelect(m.value)}
             disabled={disabled}
-            className="flex-1 flex items-center gap-3 px-4 py-3 text-left transition-colors disabled:opacity-50"
+            aria-label={m.label}
+            className="flex-1 flex items-center justify-center p-3 transition-colors disabled:opacity-50 cursor-pointer"
             style={{
-              background: selected === mode.value ? 'var(--accent-dim)' : 'var(--bg-surface)',
-              color: selected === mode.value ? 'var(--text-primary)' : 'var(--text-secondary)',
-              border: `1px solid ${selected === mode.value ? 'var(--accent)' : 'var(--border)'}`,
+              background: selected === m.value ? 'var(--accent-dim)' : 'transparent',
+              border: `1px solid ${selected === m.value ? 'var(--accent)' : 'var(--border)'}`,
               borderRadius: '2px',
-              fontFamily: 'var(--font-geist-mono)',
             }}
           >
-            <span style={{ color: selected === mode.value ? 'var(--accent)' : 'var(--text-muted)' }}>
-              {mode.icon}
-            </span>
-            <div>
-              <div className="text-xs font-medium">{mode.label}</div>
-              <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                {mode.description}
-              </div>
-            </div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={m.img}
+              alt={m.label}
+              className="h-auto w-[clamp(120px,30vw,180px)] sm:w-[clamp(100px,18vw,160px)]"
+            />
           </button>
         ))}
       </div>

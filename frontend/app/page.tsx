@@ -306,7 +306,12 @@ export default function Home() {
           <div className="flex-1 flex items-center justify-center p-8">
             <div className="w-full max-w-lg panel-elevated p-6 flex flex-col gap-4">
               <div className="flex items-center gap-3">
-                <FileAudio size={20} style={{ color: 'var(--accent)' }} />
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={resolved === 'light' ? '/choose_files_light.png' : '/choose_files_dark.png'}
+                  alt="Selected file"
+                  className="h-8 w-auto"
+                />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm truncate" style={{ color: 'var(--text-primary)' }}>
                     {displayMeta.name}
@@ -344,10 +349,12 @@ export default function Home() {
                     color: 'var(--text-primary)',
                     border: '1px solid var(--accent)',
                     borderRadius: '2px',
-                    fontFamily: 'var(--font-geist-mono)',
+                    fontFamily: 'var(--font-caveat)',
+                    fontSize: '1rem',
+                    textTransform: 'none',
                   }}
                 >
-                  Analyze track
+                  Let&apos;s start
                 </button>
                 <button
                   onClick={handleReset}
@@ -356,10 +363,12 @@ export default function Home() {
                     color: 'var(--text-muted)',
                     border: '1px solid var(--border)',
                     borderRadius: '2px',
-                    fontFamily: 'var(--font-geist-mono)',
+                    fontFamily: 'var(--font-caveat)',
+                    fontSize: '1rem',
+                    textTransform: 'none',
                   }}
                 >
-                  Cancel
+                  Go back
                 </button>
               </div>
 
