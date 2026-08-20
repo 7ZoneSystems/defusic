@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useCallback } from 'react';
-import { Upload, FileAudio } from 'lucide-react';
+import { useTheme } from '@/lib/theme';
 
 interface TrackUploadProps {
   onFileSelected: (file: File) => void;
@@ -10,6 +10,7 @@ interface TrackUploadProps {
 
 export default function TrackUpload({ onFileSelected, disabled }: TrackUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const { resolved } = useTheme();
 
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -31,15 +32,19 @@ export default function TrackUpload({ onFileSelected, disabled }: TrackUploadPro
     e.stopPropagation();
   }, []);
 
+  const handleClick = useCallback(() => {
+    inputRef.current?.click();
+  }, []);
+
   return (
     <div
       onDragOver={handleDragOver}
       onDrop={handleDrop}
-      className="flex flex-col items-center justify-center gap-4 p-8"
+      onClick={handleClick}
+      className="flex flex-col items-center justify-center gap-3 cursor-pointer"
       style={{
-        border: '1px dashed var(--border)',
-        borderRadius: '2px',
-        background: 'var(--bg-elevated)',
+        opacity: disabled ? 0.5 : 1,
+        pointerEvents: disabled ? 'none' : undefined,
       }}
     >
       <input
@@ -53,31 +58,23 @@ export default function TrackUpload({ onFileSelected, disabled }: TrackUploadPro
         style={{ position: 'absolute', opacity: 0, width: 0, height: 0, pointerEvents: 'none' }}
       />
 
-      <FileAudio size={32} style={{ color: 'var(--text-muted)' }} strokeWidth={1} />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={resolved === 'light' ? '/choose_files_light.png' : '/choose_files_dark.png'}
+        alt="Choose music files"
+        className="w-[clamp(200px,55vw,340px)] md:w-[clamp(140px,18vw,200px)] h-auto"
+      />
 
-      <div className="text-center">
-        <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-          Drop an MP3 or MP4
-        </p>
-        <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
-          or choose a file
-        </p>
-      </div>
-
-      <label
-        htmlFor="file-upload-input"
-        className="flex items-center gap-2 px-3 py-1.5 text-xs uppercase tracking-wider"
+      <p
+        className="text-sm text-center"
         style={{
-          color: 'var(--text-secondary)',
-          border: '1px solid var(--border)',
-          borderRadius: '2px',
-          fontFamily: 'var(--font-geist-mono)',
-          cursor: disabled ? 'not-allowed' : 'pointer',
+          color: 'var(--text-muted)',
+          fontStyle: 'italic',
+          fontFamily: 'Georgia, "Times New Roman", serif',
         }}
       >
-        <Upload size={12} />
-        Choose file
-      </label>
+        May I have your music files?
+      </p>
     </div>
   );
 }

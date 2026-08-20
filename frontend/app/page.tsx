@@ -287,25 +287,16 @@ export default function Home() {
         {/* Upload Section — always visible in idle state */}
         {state === 'idle' && (
           <div className="flex-1 flex items-center justify-center p-8">
-            <div className="w-full max-w-lg">
-              <div className="mb-6 text-center">
+            <div className="w-full max-w-3xl">
+              <div className="flex flex-col md:flex-row items-center justify-center gap-6 md:gap-10">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={resolved === 'light' ? '/icon_light.png' : '/icon_dark.png'}
                   alt="HearBeat"
-                  className="mx-auto mb-4 h-auto w-[clamp(112px,40vw,200px)] sm:w-[clamp(140px,35vw,260px)] md:w-[clamp(160px,28vw,300px)]"
+                  className="h-auto w-[clamp(180px,55vw,300px)] md:w-[clamp(140px,18vw,200px)]"
                 />
-                <h1
-                  className="text-lg font-semibold tracking-wider uppercase mb-2"
-                  style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-geist-mono)' }}
-                >
-                  Analyze Track
-                </h1>
-                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                  Upload an audio or video file for analysis
-                </p>
+                <TrackUpload onFileSelected={handleFileSelected} />
               </div>
-              <TrackUpload onFileSelected={handleFileSelected} />
             </div>
           </div>
         )}
