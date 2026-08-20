@@ -17,9 +17,10 @@ interface MusicPlayerBarProps {
   hapticEnabled: boolean;
 }
 
-function formatTime(t: number) {
+function formatTime(t: number, compact: boolean) {
   const m = Math.floor(t / 60);
   const s = Math.floor(t % 60);
+  if (compact) return `${m}:${String(s).padStart(2, '0')}`;
   const ms = Math.floor((t % 1) * 100);
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(ms).padStart(2, '0')}`;
 }
@@ -129,10 +130,14 @@ export default function MusicPlayerBar({
 
   return (
     <div
-      className="flex items-center gap-3 px-4 py-3 shrink-0"
+      className="flex items-center gap-2 px-3 py-2.5 shrink-0"
       style={{
         background: 'var(--bg-surface)',
         borderTop: '1px solid var(--border)',
+        boxSizing: 'border-box',
+        width: '100%',
+        maxWidth: '100vw',
+        overflowX: 'hidden',
       }}
     >
       <audio ref={audioRef} preload="auto" />
@@ -140,7 +145,7 @@ export default function MusicPlayerBar({
       {/* Play/Pause */}
       <button
         onClick={togglePlay}
-        className="p-2 flex items-center justify-center"
+        className="shrink-0 p-2 flex items-center justify-center"
         style={{
           color: 'var(--text-primary)',
           background: 'var(--accent-dim)',
@@ -154,13 +159,19 @@ export default function MusicPlayerBar({
 
       {/* Current time */}
       <span
-        className="text-xs w-20 text-right shrink-0"
-        style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-geist-mono)' }}
+        className="text-xs text-right shrink-0 hidden sm:inline"
+        style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-geist-mono)', width: '64px' }}
       >
-        {formatTime(currentTime)}
+        {formatTime(currentTime, false)}
+      </span>
+      <span
+        className="text-xs text-right shrink-0 sm:hidden"
+        style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-geist-mono)', width: '36px' }}
+      >
+        {formatTime(currentTime, true)}
       </span>
 
-      {/* Progress */}
+      {/* Progress — the only flexible element */}
       <input
         type="range"
         min={0}
@@ -168,21 +179,28 @@ export default function MusicPlayerBar({
         step={0.01}
         value={currentTime}
         onChange={handleSeek}
-        className="flex-1"
+        className="flex-1 min-w-0"
+        style={{ width: 0 }}
         aria-label="Seek"
       />
 
       {/* Duration */}
       <span
-        className="text-xs w-20 shrink-0"
-        style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-geist-mono)' }}
+        className="text-xs shrink-0 hidden sm:inline"
+        style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-geist-mono)', width: '64px' }}
       >
-        {formatTime(duration)}
+        {formatTime(duration, false)}
+      </span>
+      <span
+        className="text-xs shrink-0 sm:hidden"
+        style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-geist-mono)', width: '36px' }}
+      >
+        {formatTime(duration, true)}
       </span>
 
       {/* Volume */}
-      <div className="flex items-center gap-1.5 shrink-0">
-        <Volume2 size={14} style={{ color: 'var(--text-muted)' }} />
+      <div className="flex items-center gap-1 shrink-0">
+        <Volume2 size={12} style={{ color: 'var(--text-muted)' }} />
         <input
           type="range"
           min={0}
@@ -190,7 +208,7 @@ export default function MusicPlayerBar({
           step={0.01}
           value={volume}
           onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
-          className="w-20"
+          className="w-16 sm:w-20"
           aria-label="Song volume"
         />
       </div>
@@ -198,7 +216,7 @@ export default function MusicPlayerBar({
       {/* Haptic settings button */}
       <button
         onClick={onHapticSettingsClick}
-        className="p-1.5 flex items-center justify-center"
+        className="shrink-0 p-1.5 flex items-center justify-center"
         style={{
           color: hapticEnabled ? 'var(--success)' : 'var(--text-muted)',
           border: '1px solid var(--border)',

@@ -5,7 +5,7 @@ import { HapticConfig, HapticEvent } from '@/lib/haptic-types';
 import { HapticController } from '@/lib/haptic-controller';
 import HapticPowerVisualizer from '@/components/HapticPowerVisualizer';
 import HapticResponseVisualizer from '@/components/HapticResponseVisualizer';
-import MasterHapticControl from '@/components/MasterHapticControl';
+import RotaryKnob from '@/components/RotaryKnob';
 import MusicPlayerBar from '@/components/MusicPlayerBar';
 import HapticSettingsDialog from '@/components/HapticSettingsDialog';
 
@@ -91,9 +91,9 @@ export default function MusicExperience({
 
         {/* Center — Master control */}
         <div className="flex-1 flex items-center justify-center min-w-0 min-h-0">
-          <MasterHapticControl
-            value={hapticConfig.master_intensity}
-            onChange={handleMasterChange}
+          <RotaryKnob
+            value={hapticConfig.master_intensity * 100}
+            onChange={(pct) => handleMasterChange(pct / 100)}
           />
         </div>
 
