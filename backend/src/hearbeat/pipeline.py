@@ -3,10 +3,16 @@
 Updated to use filter-bank bass analysis on the original audio
 (no Demucs required for bass detection) while keeping Demucs
 available for drum stem separation and diagnostics.
+
+Model lifecycle:
+    - BeatAnalyzer and StemExtractor are process-level singletons.
+    - They load their models once and reuse them across requests.
+    - Per-request audio data (tensors, arrays) is released after each analysis.
 """
 
 from __future__ import annotations
 
+import gc
 import json
 import logging
 import shutil
@@ -16,7 +22,7 @@ from pathlib import Path
 import numpy as np
 
 from hearbeat.audio_extractor import extract_audio, get_audio_duration, check_audio_stream
-from hearbeat.beat_analyzer import BeatAnalyzer, BeatAnalysisError
+from hearbeat.beat_analyzer import BeatAnalysisError, get_beat_analyzer
 from hearbeat.config import OUTPUT_DIR
 from hearbeat.event_fusion import fuse_events
 from hearbeat.models import (
@@ -27,6 +33,7 @@ from hearbeat.models import (
     RhythmInfo,
     SourceInfo,
 )
+from hearbeat.stem_extractor import get_stem_extractor
 
 logger = logging.getLogger(__name__)
 
@@ -81,9 +88,9 @@ def analyze_file(
         sample_rate=sample_rate,
     )
 
-    # Step 3: Beat analysis (always needed)
+    # Step 3: Beat analysis (uses process-singleton BeatAnalyzer)
     logger.info("=== Step 3: Beat analysis ===")
-    beat_analyzer = BeatAnalyzer()
+    beat_analyzer = get_beat_analyzer()
     try:
         beat_result = beat_analyzer.analyze(wav_path)
     except BeatAnalysisError as e:
@@ -114,12 +121,11 @@ def analyze_file(
     if original_audio.ndim > 1:
         original_audio = original_audio.mean(axis=1)
 
-    # Step 5: Source separation (for drum stem and diagnostics)
+    # Step 5: Source separation (uses process-singleton StemExtractor)
     logger.info("=== Step 5: Source separation ===")
     stems: dict[str, tuple] = {}
     try:
-        from hearbeat.stem_extractor import StemExtractor, StemExtractionError
-        stem_extractor = StemExtractor()
+        stem_extractor = get_stem_extractor()
         stems = stem_extractor.separate(wav_path)
     except Exception as e:
         logger.warning("Source separation failed: %s", e)
@@ -181,6 +187,16 @@ def analyze_file(
         json_path = output_dir / f"{stem}.json"
         json_path.write_text(result.model_dump_json(indent=2))
         logger.info("Saved analysis to: %s", json_path)
+
+    # --- Release per-request data ---
+    # Original audio array (large, request-local)
+    del original_audio
+    # Stems dict (large, request-local)
+    del stems
+    # Beat result arrays
+    del beat_result
+    # Garbage collect to free memory promptly
+    gc.collect()
 
     # Clean up temp WAV
     try:

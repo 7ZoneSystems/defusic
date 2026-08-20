@@ -1,7 +1,12 @@
-"""Demucs-based source separation: extracts all stems from audio once."""
+"""Demucs-based source separation: extracts all stems from audio once.
+
+The separator is a process-level singleton: loaded once, reused across requests.
+Per-request audio data is released after each separation call.
+"""
 
 from __future__ import annotations
 
+import gc
 import logging
 from pathlib import Path
 
@@ -40,7 +45,7 @@ class StemExtractor:
             yaml_path = local_model_dir / f"{self.model_name}.yaml"
 
             if yaml_path.is_file():
-                logger.info("Loading Demucs model from local: %s", local_model_dir)
+                logger.info("Loading HTDemucs model from local: %s", local_model_dir)
                 with open(yaml_path) as f:
                     bag = yaml.safe_load(f)
                 models = [
@@ -72,7 +77,7 @@ class StemExtractor:
                     device=self.device,
                 )
             logger.info(
-                "Loaded Demucs separator: model=%s, device=%s",
+                "HTDemucs ready: model=%s, device=%s",
                 self.model_name, self.device,
             )
         except ImportError as e:
@@ -104,8 +109,35 @@ class StemExtractor:
             stems[name] = (audio.astype(np.float32), sr)
             logger.info("Extracted stem '%s': %.1fs", name, len(audio) / sr)
 
+        # Release the raw Demucs tensors (keep only the numpy arrays in stems)
+        del separated
+        gc.collect()
+
         return stems
 
     def get_stems_list(self) -> list[str]:
         """Return the list of stem names the model produces."""
         return ["bass", "drums", "vocals", "other"]
+
+    def release_request_data(self) -> None:
+        """Release per-request memory. Called after each analysis completes.
+
+        Keeps the model/separator resident.
+        """
+        gc.collect()
+
+
+# --- Module-level singleton ---
+
+_global_extractor: StemExtractor | None = None
+
+
+def get_stem_extractor() -> StemExtractor:
+    """Return the process-global StemExtractor, creating it on first call.
+
+    The loaded model stays resident for the lifetime of the process.
+    """
+    global _global_extractor
+    if _global_extractor is None:
+        _global_extractor = StemExtractor()
+    return _global_extractor

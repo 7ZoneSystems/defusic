@@ -1,4 +1,7 @@
-"""Beat analysis using Essentia's RhythmExtractor2013."""
+"""Beat analysis using Essentia's RhythmExtractor2013.
+
+The algorithm is a process-level singleton: loaded once, reused across requests.
+"""
 
 from __future__ import annotations
 
@@ -24,7 +27,6 @@ class BeatAnalyzer:
         if self._algorithm is not None:
             return
         try:
-            import essentia
             import essentia.standard as es
 
             self._algorithm = es.RhythmExtractor2013(method="multifeature")
@@ -76,6 +78,9 @@ class BeatAnalyzer:
         if bpm > 200:
             warnings.append(f"Very high BPM detected ({bpm:.1f}), possible double-time")
 
+        # Release per-request audio array
+        del audio
+
         return {
             "bpm": float(bpm),
             "confidence": float(beats_confidence),
@@ -84,3 +89,19 @@ class BeatAnalyzer:
             "duration": duration,
             "warnings": warnings,
         }
+
+
+# --- Module-level singleton ---
+
+_global_analyzer: BeatAnalyzer | None = None
+
+
+def get_beat_analyzer() -> BeatAnalyzer:
+    """Return the process-global BeatAnalyzer, creating it on first call.
+
+    The loaded algorithm stays resident for the lifetime of the process.
+    """
+    global _global_analyzer
+    if _global_analyzer is None:
+        _global_analyzer = BeatAnalyzer()
+    return _global_analyzer
