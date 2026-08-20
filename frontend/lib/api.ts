@@ -1,12 +1,11 @@
 import { AnalysisJob, AnalysisMode, WaveformData } from './types';
 import { HapticTimeline } from './haptic-types';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+import { API_BASE } from './config';
 
 // --- Analysis endpoints ---
 
 export async function checkHealth(): Promise<{ status: string; version: string }> {
-  const res = await fetch(`${API_URL}/health`);
+  const res = await fetch(`${API_BASE}/health`);
   if (!res.ok) throw new Error('Backend unavailable');
   return res.json();
 }
@@ -14,7 +13,7 @@ export async function checkHealth(): Promise<{ status: string; version: string }
 export async function analyzeFile(file: File, mode: AnalysisMode = 'music'): Promise<AnalysisJob> {
   const form = new FormData();
   form.append('file', file);
-  const res = await fetch(`${API_URL}/analyze?mode=${mode}`, { method: 'POST', body: form });
+  const res = await fetch(`${API_BASE}/analyze?mode=${mode}`, { method: 'POST', body: form });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || 'Analysis failed');
@@ -23,38 +22,38 @@ export async function analyzeFile(file: File, mode: AnalysisMode = 'music'): Pro
 }
 
 export async function getAnalysis(jobId: string): Promise<AnalysisJob> {
-  const res = await fetch(`${API_URL}/analysis/${jobId}`);
+  const res = await fetch(`${API_BASE}/analysis/${jobId}`);
   if (!res.ok) throw new Error('Failed to fetch analysis');
   return res.json();
 }
 
 export function getOriginalAudioUrl(jobId: string): string {
-  return `${API_URL}/analysis/${jobId}/audio`;
+  return `${API_BASE}/analysis/${jobId}/audio`;
 }
 
 export function getDiagnosticAudioUrl(jobId: string, layers: string[] = ['all']): string {
   const layerParam = layers.join(',');
-  return `${API_URL}/analysis/${jobId}/diagnostic?layers=${encodeURIComponent(layerParam)}`;
+  return `${API_BASE}/analysis/${jobId}/diagnostic?layers=${encodeURIComponent(layerParam)}`;
 }
 
 export function getClickTrackUrl(jobId: string, multi = false): string {
   const params = multi ? '?multi=true' : '';
-  return `${API_URL}/analysis/${jobId}/click-track${params}`;
+  return `${API_BASE}/analysis/${jobId}/click-track${params}`;
 }
 
 export function getJsonDownloadUrl(jobId: string): string {
-  return `${API_URL}/analysis/${jobId}/json`;
+  return `${API_BASE}/analysis/${jobId}/json`;
 }
 
 export function getVisualizeUrl(jobId: string): string {
-  return `${API_URL}/visualize/${jobId}`;
+  return `${API_BASE}/visualize/${jobId}`;
 }
 
 export async function getWaveformData(
   jobId: string,
   resolution = 2000
 ): Promise<WaveformData> {
-  const res = await fetch(`${API_URL}/analysis/${jobId}/waveform?resolution=${resolution}`);
+  const res = await fetch(`${API_BASE}/analysis/${jobId}/waveform?resolution=${resolution}`);
   if (!res.ok) throw new Error('Failed to fetch waveform data');
   return res.json();
 }
@@ -63,7 +62,7 @@ export async function getHapticTimeline(
   jobId: string,
   configUpdate?: Record<string, unknown>
 ): Promise<HapticTimeline> {
-  const res = await fetch(`${API_URL}/analysis/${jobId}/haptic`, {
+  const res = await fetch(`${API_BASE}/analysis/${jobId}/haptic`, {
     method: 'POST',
     headers: configUpdate ? { 'Content-Type': 'application/json' } : undefined,
     body: configUpdate ? JSON.stringify(configUpdate) : undefined,
@@ -73,7 +72,7 @@ export async function getHapticTimeline(
 }
 
 export async function getPresets(): Promise<{ presets: string[] }> {
-  const res = await fetch(`${API_URL}/presets`);
+  const res = await fetch(`${API_BASE}/presets`);
   if (!res.ok) throw new Error('Failed to fetch presets');
   return res.json();
 }
@@ -81,7 +80,7 @@ export async function getPresets(): Promise<{ presets: string[] }> {
 export async function getLoudnessProfile(
   jobId: string
 ): Promise<Record<string, unknown>> {
-  const res = await fetch(`${API_URL}/analysis/${jobId}/loudness`);
+  const res = await fetch(`${API_BASE}/analysis/${jobId}/loudness`);
   if (!res.ok) throw new Error('Failed to fetch loudness profile');
   return res.json();
 }
@@ -111,7 +110,7 @@ export interface LibraryPreset {
 }
 
 export async function fetchLibrarySongs(): Promise<LibrarySong[]> {
-  const res = await fetch(`${API_URL}/library/songs`, {
+  const res = await fetch(`${API_BASE}/library/songs`, {
     credentials: "include",
   });
   if (!res.ok) throw new Error("Failed to fetch songs");
@@ -125,7 +124,7 @@ export async function saveSongToLibrary(
 ): Promise<{ song_id: number; file_hash: string }> {
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`${API_URL}/library/songs?mode=${mode}`, {
+  const res = await fetch(`${API_BASE}/library/songs?mode=${mode}`, {
     method: "POST",
     credentials: "include",
     body: form,
@@ -135,7 +134,7 @@ export async function saveSongToLibrary(
 }
 
 export async function deleteLibrarySong(songId: number): Promise<void> {
-  const res = await fetch(`${API_URL}/library/songs/${songId}`, {
+  const res = await fetch(`${API_BASE}/library/songs/${songId}`, {
     method: "DELETE",
     credentials: "include",
   });
@@ -143,14 +142,14 @@ export async function deleteLibrarySong(songId: number): Promise<void> {
 }
 
 export async function markSongPlayed(songId: number): Promise<void> {
-  await fetch(`${API_URL}/library/songs/${songId}/play`, {
+  await fetch(`${API_BASE}/library/songs/${songId}/play`, {
     method: "POST",
     credentials: "include",
   });
 }
 
 export async function fetchLibraryPresets(): Promise<LibraryPreset[]> {
-  const res = await fetch(`${API_URL}/library/presets`, {
+  const res = await fetch(`${API_BASE}/library/presets`, {
     credentials: "include",
   });
   if (!res.ok) throw new Error("Failed to fetch presets");
@@ -165,7 +164,7 @@ export async function savePresetToLibrary(
 ): Promise<{ preset_id: number }> {
   const params = new URLSearchParams({ name });
   if (description) params.set("description", description);
-  const res = await fetch(`${API_URL}/library/presets?${params}`, {
+  const res = await fetch(`${API_BASE}/library/presets?${params}`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -176,7 +175,7 @@ export async function savePresetToLibrary(
 }
 
 export async function deleteLibraryPreset(presetId: number): Promise<void> {
-  const res = await fetch(`${API_URL}/library/presets/${presetId}`, {
+  const res = await fetch(`${API_BASE}/library/presets/${presetId}`, {
     method: "DELETE",
     credentials: "include",
   });

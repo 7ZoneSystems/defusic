@@ -7,6 +7,7 @@ import {
   useEffect,
   useState,
 } from "react";
+import { API_BASE } from "./config";
 
 interface CohesivityUser {
   id: number;
@@ -34,8 +35,6 @@ const AuthContext = createContext<AuthContextType>({
 export function useAuth() {
   return useContext(AuthContext);
 }
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<CohesivityUser | null>(null);
