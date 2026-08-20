@@ -24,6 +24,7 @@ import { HapticConfig, HapticEvent, HapticTimeline, DEFAULT_HAPTIC_CONFIG } from
 import { HapticController } from '@/lib/haptic-controller';
 import { createHapticDriver } from '@/lib/haptic-driver';
 import { persistFile, restoreFile, clearPersistedFile, getPersistedMeta } from '@/lib/file-persist';
+import { useTheme } from '@/lib/theme';
 
 /** Metadata about a selected file that survives in-memory (lightweight). */
 interface SelectedFileMeta {
@@ -44,6 +45,7 @@ export default function Home() {
   const [mode, setMode] = useState<AnalysisMode>('music');
   const [currentTime, setCurrentTime] = useState(0);
   const [engineStatus, setEngineStatus] = useState<'online' | 'offline' | 'analyzing'>('online');
+  const { resolved } = useTheme();
 
   const [layers, setLayers] = useState<DiagnosticLayer[]>(
     mode === 'drumming' ? [...DRUM_LAYERS] : [...MUSIC_LAYERS]
@@ -288,6 +290,12 @@ export default function Home() {
           <div className="flex-1 flex items-center justify-center p-8">
             <div className="w-full max-w-lg">
               <div className="mb-6 text-center">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={resolved === 'light' ? '/icon_light.png' : '/icon_dark.png'}
+                  alt="HearBeat"
+                  className="mx-auto mb-4 w-28 h-auto sm:w-36 md:w-44"
+                />
                 <h1
                   className="text-lg font-semibold tracking-wider uppercase mb-2"
                   style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-geist-mono)' }}
