@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useEffect, useCallback, useState } from 'react';
-import { Vibrate, Volume2, Save } from 'lucide-react';
+import { Vibrate, Volume2, Save, Check, Loader2 } from 'lucide-react';
 import { getOriginalAudioUrl } from '@/lib/api';
 import { HapticController } from '@/lib/haptic-controller';
 import { useTheme } from '@/lib/theme';
@@ -231,16 +231,47 @@ export default function MusicAudioPlayer({
             className="p-2 flex items-center justify-center shrink-0 absolute"
             style={{
               right: '56px',
-              color: saveState === 'saved' ? 'var(--success)' : 'var(--text-muted)',
-              border: saveState === 'saved' ? '1px solid var(--success)' : '1px solid var(--border)',
-              background: saveState === 'saved' ? 'color-mix(in srgb, var(--success) 12%, transparent)' : 'transparent',
+              color: saveState === 'saved'
+                ? 'var(--success)'
+                : saveState === 'saving'
+                  ? 'var(--accent)'
+                  : 'var(--text-muted)',
+              border: saveState === 'saved'
+                ? '1px solid var(--success)'
+                : saveState === 'saving'
+                  ? '1px solid var(--accent)'
+                  : '1px solid var(--border)',
+              background: saveState === 'saved'
+                ? 'color-mix(in srgb, var(--success) 12%, transparent)'
+                : saveState === 'saving'
+                  ? 'color-mix(in srgb, var(--accent) 12%, transparent)'
+                  : 'transparent',
               borderRadius: '2px',
+              cursor: saveState === 'saving' ? 'not-allowed' : 'pointer',
               transition: 'border-color 180ms ease, color 180ms ease, background-color 180ms ease',
             }}
-            aria-label={saveState === 'saved' ? 'Saved' : 'Save song'}
-            title={saveState === 'saved' ? 'Saved to library' : 'Save to library'}
+            aria-label={
+              saveState === 'saved'
+                ? 'Saved'
+                : saveState === 'saving'
+                  ? 'Saving song...'
+                  : 'Save song'
+            }
+            title={
+              saveState === 'saved'
+                ? 'Saved to library'
+                : saveState === 'saving'
+                  ? 'Saving to library...'
+                  : 'Save to library'
+            }
           >
-            <Save size={16} />
+            {saveState === 'saving' ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : saveState === 'saved' ? (
+              <Check size={16} />
+            ) : (
+              <Save size={16} />
+            )}
           </button>
         )}
 
