@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
 } from "react";
 import {
@@ -36,18 +37,22 @@ export function GoogleDriveProvider({ children }: { children: React.ReactNode })
   const [loading, setLoading] = useState(true);
   const [folderId, setFolderId] = useState<string | null>(null);
   const [songsFolderId, setSongsFolderId] = useState<string | null>(null);
+  const fetchVersionRef = useRef(0);
 
   const refresh = useCallback(async () => {
+    const version = ++fetchVersionRef.current;
     try {
       setLoading(true);
       const status = await getDriveStatus();
+      if (version !== fetchVersionRef.current) return;
       setConnected(status.connected);
       setFolderId(status.folder_id);
       setSongsFolderId(status.songs_folder_id);
     } catch {
+      if (version !== fetchVersionRef.current) return;
       setConnected(false);
     } finally {
-      setLoading(false);
+      if (version === fetchVersionRef.current) setLoading(false);
     }
   }, []);
 

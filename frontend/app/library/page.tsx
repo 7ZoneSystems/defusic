@@ -277,6 +277,28 @@ function LibraryContent() {
     );
   }
 
+  // --- Drive connected + empty ---
+  if (!driveLoading && driveConnected && !loading && mergedSongs.length === 0) {
+    return (
+      <div className="min-h-screen" style={{ background: "var(--bg-primary)" }}>
+        <Header />
+        <div
+          className="flex flex-col items-center justify-center px-6 gap-4"
+          style={{ minHeight: "calc(100vh - 60px)" }}
+        >
+          <div className="flex items-center gap-2 text-sm" style={{ color: "var(--success)" }}>
+            <HardDrive size={16} />
+            <span>Your Drive is connected</span>
+          </div>
+          <p className="text-sm text-center max-w-md" style={{ color: "var(--text-muted)" }}>
+            No HearBeat songs yet. Analyze a track or drop audio files into your HearBeat/Songs folder on Google Drive.
+          </p>
+        </div>
+        <Footer />
+      </div>
+    );
+  }
+
   // --- Drive connected / loading ---
   return (
     <div className="min-h-screen" style={{ background: "var(--bg-primary)" }}>
@@ -305,15 +327,6 @@ function LibraryContent() {
           <div className="flex items-center gap-2 py-12 justify-center" style={{ color: "var(--text-muted)" }}>
             <Loader2 size={16} className="animate-spin" />
             <span>Loading library...</span>
-          </div>
-        ) : mergedSongs.length === 0 ? (
-          <div className="text-center py-16">
-            <p style={{ color: "var(--text-muted)", marginBottom: "0.5rem" }}>
-              No songs in your library yet.
-            </p>
-            <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-              Analyze a track or process songs from your Drive.
-            </p>
           </div>
         ) : (
           <div className="space-y-2">
