@@ -67,50 +67,51 @@ export default function CookieConsent() {
       aria-label="Cookie consent notice"
     >
       <div
-        className="p-4 flex flex-col gap-2.5 rounded-lg border shadow-2xl transition-all"
+        className="p-4 sm:p-5 flex flex-col items-center text-center gap-3 rounded-lg border shadow-2xl transition-all relative"
         style={{
           background: 'var(--bg-surface)',
           borderColor: 'var(--border)',
           boxShadow: '0 8px 32px rgba(0, 0, 0, 0.35)',
         }}
       >
-        {/* Header row: Cookie artwork + Title + Close Button */}
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex items-center gap-2.5">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/cookie.png"
-              alt="HearBeat Cookies"
-              className="w-8 h-8 object-contain shrink-0"
-              onError={(e) => {
-                // Graceful fallback if image is not present
-                (e.target as HTMLElement).style.display = 'none';
-              }}
-            />
-            <h2
-              className="text-2xl leading-none"
-              style={{
-                color: 'var(--text-primary)',
-                fontFamily: 'var(--font-caveat)',
-                fontWeight: 600,
-              }}
-            >
-              Cookies
-            </h2>
-          </div>
+        {/* Close Button top-right */}
+        <button
+          onClick={handleDismiss}
+          className="absolute top-2.5 right-2.5 p-1 rounded-sm text-text-muted hover:text-text-primary transition-colors"
+          aria-label="Close cookie notice"
+        >
+          <X size={15} />
+        </button>
 
-          <button
-            onClick={handleDismiss}
-            className="p-1 rounded-sm text-text-muted hover:text-text-primary transition-colors -mr-1 -mt-1"
-            aria-label="Close cookie notice"
-          >
-            <X size={15} />
-          </button>
+        {/* Centered Cookie Illustration */}
+        <div className="flex items-center justify-center pt-1">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/cookie.png"
+            alt="HearBeat Cookies"
+            className="h-14 sm:h-16 w-auto object-contain select-none"
+            onError={(e) => {
+              (e.target as HTMLElement).style.display = 'none';
+            }}
+          />
         </div>
+
+        {/* Title */}
+        <h2
+          className="text-2xl sm:text-3xl leading-none -mt-1"
+          style={{
+            color: 'var(--text-primary)',
+            fontFamily: 'var(--font-caveat)',
+            fontWeight: 600,
+            letterSpacing: '0.01em',
+          }}
+        >
+          Cookies
+        </h2>
 
         {/* Explanation Copy */}
         <p
-          className="text-xs leading-relaxed"
+          className="text-xs leading-relaxed max-w-[300px]"
           style={{ color: 'var(--text-secondary)' }}
         >
           HearBeat uses essential first-party cookies to keep you signed in and remember your preferences.
@@ -118,7 +119,7 @@ export default function CookieConsent() {
 
         {/* Legal Links */}
         <div
-          className="flex items-center gap-3 text-[11px]"
+          className="flex items-center justify-center gap-3 text-[11px]"
           style={{ color: 'var(--text-muted)' }}
         >
           <Link
@@ -139,10 +140,10 @@ export default function CookieConsent() {
         </div>
 
         {/* Action Buttons: Decline | Accept */}
-        <div className="flex items-center gap-2 mt-1">
+        <div className="flex items-center gap-2 w-full mt-0.5">
           <button
             onClick={handleDecline}
-            className="flex-1 px-3 py-1.5 text-xs rounded-sm border transition-colors hover:bg-accent/10"
+            className="flex-1 px-3 py-1.5 text-xs rounded-sm border transition-colors hover:bg-accent/10 font-medium"
             style={{
               color: 'var(--text-muted)',
               borderColor: 'var(--border)',
