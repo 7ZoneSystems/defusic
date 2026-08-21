@@ -5,7 +5,7 @@ import { useAuth } from "@/lib/auth";
 import { useGoogleDrive } from "@/lib/drive";
 
 export default function UserMenu() {
-  const { user, loading, login, logout } = useAuth();
+  const { user, loading, login, logout, keepSignedIn, setKeepSignedIn } = useAuth();
   const { connected: driveConnected, disconnect: driveDisconnect, loading: driveLoading } = useGoogleDrive();
   const [open, setOpen] = useState(false);
 
@@ -95,6 +95,18 @@ export default function UserMenu() {
                 Disconnect Drive
               </button>
             )}
+            <label
+              className="flex items-center gap-2 px-3 py-2 text-xs cursor-pointer hover:bg-accent/50 transition-colors"
+              style={{ color: "var(--text-primary)", borderBottom: "1px solid var(--border)" }}
+            >
+              <input
+                type="checkbox"
+                checked={keepSignedIn}
+                onChange={(e) => setKeepSignedIn(e.target.checked)}
+                className="w-3 h-3"
+              />
+              Keep me signed in
+            </label>
             <button
               onClick={() => {
                 setOpen(false);

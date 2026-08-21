@@ -16,7 +16,7 @@ import DrumPatternView from '@/components/DrumPatternView';
 import AnalysisProgress from '@/components/AnalysisProgress';
 import MusicExperience from '@/components/MusicExperience';
 import HapticPanel from '@/components/HapticPanel';
-import { analyzeFile, checkHealth, getHapticTimeline, getJsonDownloadUrl, getWaveformData, getLibrarySongAnalysis, getDriveDownloadUrl } from '@/lib/api';
+import { analyzeFile, checkHealth, getHapticTimeline, getJsonDownloadUrl, getWaveformData, getLibrarySongAnalysis, getDriveDownloadUrl, saveSongAnalysis } from '@/lib/api';
 import { AnalysisResult, AnalysisMode, AppState, DiagnosticLayer, WaveformData } from '@/lib/types';
 import { DRUM_LAYERS, MUSIC_LAYERS } from '@/lib/types';
 import { HapticConfig, HapticEvent, HapticTimeline, DEFAULT_HAPTIC_CONFIG } from '@/lib/haptic-types';
@@ -24,6 +24,8 @@ import { HapticController } from '@/lib/haptic-controller';
 import { createHapticDriver } from '@/lib/haptic-driver';
 import { persistFile, restoreFile, clearPersistedFile, getPersistedMeta } from '@/lib/file-persist';
 import { useTheme } from '@/lib/theme';
+import { useAuth } from '@/lib/auth';
+import { API_BASE } from '@/lib/config';
 
 /** Metadata about a selected file that survives in-memory (lightweight). */
 interface SelectedFileMeta {
@@ -76,6 +78,8 @@ function HomeContent() {
   const [realHardware, setRealHardware] = useState(false);
   const [libraryAudioSrc, setLibraryAudioSrc] = useState<string | null>(null);
   const hapticInitRef = useRef(false);
+  const { user } = useAuth();
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
 
   // Initialize haptic driver once
   useEffect(() => {
@@ -314,9 +318,30 @@ function HomeContent() {
     setDiagnosticWaveform(null);
     setHapticTimeline(null);
     setLibraryAudioSrc(null);
+    setSaveState('idle');
     hapticController?.stop();
     clearPersistedFile().catch(() => {});
   }, [hapticController]);
+
+  const handleSave = useCallback(async () => {
+    if (!selectedFile || !result || saveState === 'saving') return;
+    if (!user) {
+      window.location.href = `${API_BASE}/auth/login?return_to=${encodeURIComponent(window.location.pathname + window.location.search)}`;
+      return;
+    }
+    setSaveState('saving');
+    try {
+      await saveSongAnalysis(
+        selectedFile,
+        JSON.stringify(result),
+        mode,
+        selectedFile.name,
+      );
+      setSaveState('saved');
+    } catch {
+      setSaveState('idle');
+    }
+  }, [selectedFile, result, mode, saveState, user]);
 
   const handleLayerToggle = useCallback((layerId: string) => {
     setLayers((prev) =>
@@ -493,6 +518,8 @@ function HomeContent() {
             hapticConfig={hapticConfig}
             onHapticConfigChange={setHapticConfig}
             audioSrc={libraryAudioSrc || undefined}
+            saveState={saveState}
+            onSave={handleSave}
           />
         )}
 

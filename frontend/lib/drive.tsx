@@ -16,9 +16,11 @@ import {
 
 interface DriveContextType {
   connected: boolean;
+  hasSongs: boolean;
   loading: boolean;
   folderId: string | null;
   songsFolderId: string | null;
+  connectionFileId: string | null;
   connect: () => void;
   disconnect: () => Promise<void>;
   exchangeCode: (code: string) => Promise<void>;
@@ -37,6 +39,8 @@ export function GoogleDriveProvider({ children }: { children: React.ReactNode })
   const [loading, setLoading] = useState(true);
   const [folderId, setFolderId] = useState<string | null>(null);
   const [songsFolderId, setSongsFolderId] = useState<string | null>(null);
+  const [hasSongs, setHasSongs] = useState(false);
+  const [connectionFileId, setConnectionFileId] = useState<string | null>(null);
   const fetchVersionRef = useRef(0);
 
   const refresh = useCallback(async () => {
@@ -46,11 +50,14 @@ export function GoogleDriveProvider({ children }: { children: React.ReactNode })
       const status = await getDriveStatus();
       if (version !== fetchVersionRef.current) return;
       setConnected(status.connected);
+      setHasSongs(status.has_songs);
       setFolderId(status.folder_id);
       setSongsFolderId(status.songs_folder_id);
+      setConnectionFileId(status.connection_file_id);
     } catch {
       if (version !== fetchVersionRef.current) return;
       setConnected(false);
+      setHasSongs(false);
     } finally {
       if (version === fetchVersionRef.current) setLoading(false);
     }
@@ -88,13 +95,15 @@ export function GoogleDriveProvider({ children }: { children: React.ReactNode })
   const disconnect = useCallback(async () => {
     await disconnectDrive();
     setConnected(false);
+    setHasSongs(false);
     setFolderId(null);
     setSongsFolderId(null);
+    setConnectionFileId(null);
   }, []);
 
   return (
     <DriveContext.Provider
-      value={{ connected, loading, folderId, songsFolderId, connect, disconnect, exchangeCode, refresh }}
+      value={{ connected, hasSongs, loading, folderId, songsFolderId, connectionFileId, connect, disconnect, exchangeCode, refresh }}
     >
       {children}
     </DriveContext.Provider>

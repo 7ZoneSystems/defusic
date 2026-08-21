@@ -25,6 +25,8 @@ DRIVE_UPLOAD_BASE = "https://www.googleapis.com/upload/drive/v3"
 
 HEARBEAT_FOLDER_NAME = "HearBeat"
 SONGS_FOLDER_NAME = "Songs"
+MARKER_FILE_NAME = "connected.txt"
+MARKER_CONTENT = "HearBeat Google Drive connection marker"
 
 # Required scope for file-level access
 DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file"
@@ -227,6 +229,68 @@ async def ensure_folder_structure(
     return hb_folder_id, songs_folder_id
 
 
+async def _find_file(token: str, name: str, parent_id: str) -> str | None:
+    """Find a file by name in a folder. Returns file ID or None."""
+    query = (
+        f"'{parent_id}' in parents and name='{name}' "
+        "and mimeType!='application/vnd.google-apps.folder' and trashed=false"
+    )
+    resp = await _drive_request(
+        "GET",
+        f"{DRIVE_API_BASE}/files",
+        token,
+        params={"q": query, "fields": "files(id,name)", "pageSize": "1"},
+    )
+    resp.raise_for_status()
+    files = resp.json().get("files", [])
+    return files[0]["id"] if files else None
+
+
+async def ensure_connection_marker(
+    token: str,
+    hearbeat_folder_id: str,
+    existing_marker_id: str | None = None,
+) -> str:
+    """Ensure a connected.txt marker exists in the HearBeat folder.
+
+    If existing_marker_id is given, verify it still exists on Drive.
+    If missing or no existing ID, create/recreate the marker.
+    Returns the marker file ID.
+    """
+    if existing_marker_id:
+        meta = await get_file_metadata(token, existing_marker_id)
+        if meta and meta.get("name") == MARKER_FILE_NAME:
+            return existing_marker_id
+
+    # Look for existing marker
+    marker_id = await _find_file(token, MARKER_FILE_NAME, hearbeat_folder_id)
+    if marker_id:
+        return marker_id
+
+    # Create marker
+    metadata = {
+        "name": MARKER_FILE_NAME,
+        "parents": [hearbeat_folder_id],
+        "mimeType": "text/plain",
+    }
+    resp = await _drive_request(
+        "POST",
+        f"{DRIVE_UPLOAD_BASE}/files",
+        token,
+        content=MARKER_CONTENT.encode(),
+        headers={"Content-Type": "text/plain"},
+        params={"uploadType": "media", "fields": "id"},
+    )
+    resp.raise_for_status()
+    return resp.json()["id"]
+
+
+async def verify_connection_marker(token: str, marker_file_id: str) -> bool:
+    """Verify the connection marker file is still accessible."""
+    meta = await get_file_metadata(token, marker_file_id)
+    return meta is not None and meta.get("name") == MARKER_FILE_NAME
+
+
 async def save_folder_ids(
     db_user_id: int, folder_id: str, songs_folder_id: str
 ) -> None:
@@ -330,14 +394,15 @@ async def verify_file_in_folder(token: str, file_id: str, folder_id: str) -> boo
 
 
 async def disconnect_drive(db_user_id: int) -> None:
-    """Clear Drive tokens and folder IDs from user record."""
+    """Clear Drive tokens, folder IDs, and connection marker from user record."""
     await coh.db_query(
         """UPDATE users SET
             drive_access_token = NULL,
             drive_refresh_token = NULL,
             drive_token_expiry = NULL,
             drive_folder_id = NULL,
-            drive_songs_folder_id = NULL
+            drive_songs_folder_id = NULL,
+            drive_connection_file_id = NULL
         WHERE id = $1""",
         [db_user_id],
     )

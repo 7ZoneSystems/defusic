@@ -134,6 +134,24 @@ export async function saveSongToLibrary(
   return res.json();
 }
 
+export async function saveSongAnalysis(
+  file: File,
+  analysisJson: string,
+  mode: string = "music",
+  filename: string = ""
+): Promise<{ song_id: number; file_hash: string; status: string }> {
+  const params = new URLSearchParams({ mode, filename, analysis_json: analysisJson });
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${API_BASE}/library/songs/save-analysis?${params}`, {
+    method: "POST",
+    credentials: "include",
+    body: form,
+  });
+  if (!res.ok) throw new Error("Failed to save song");
+  return res.json();
+}
+
 export async function deleteLibrarySong(songId: number): Promise<void> {
   const res = await fetch(`${API_BASE}/library/songs/${songId}`, {
     method: "DELETE",
@@ -187,8 +205,10 @@ export async function deleteLibraryPreset(presetId: number): Promise<void> {
 
 export async function getDriveStatus(): Promise<{
   connected: boolean;
+  has_songs: boolean;
   folder_id: string | null;
   songs_folder_id: string | null;
+  connection_file_id: string | null;
 }> {
   const res = await fetch(`${API_BASE}/drive/status`, { credentials: "include" });
   if (!res.ok) throw new Error("Failed to check Drive status");
@@ -199,6 +219,7 @@ export async function exchangeDriveCode(code: string): Promise<{
   status: string;
   folder_id: string;
   songs_folder_id: string;
+  connection_file_id: string;
 }> {
   const res = await fetch(`${API_BASE}/drive/exchange?code=${encodeURIComponent(code)}`, {
     method: "POST",

@@ -585,6 +585,7 @@ async def auth_callback(
     access_token: str | None = Query(None),
     refresh_token: str | None = Query(None),
     return_to: str = Query("/"),
+    keep_signed_in: bool = Query(False),
     error: str | None = Query(None),
 ) -> RedirectResponse:
     """Handle OAuth callback from Cohesivity.
@@ -608,9 +609,10 @@ async def auth_callback(
         httponly=True, secure=True, samesite="lax", path="/", max_age=3600,
     )
     if refresh_token:
+        refresh_max_age = 30 * 86400 if keep_signed_in else None
         resp.set_cookie(
             "refresh_token", refresh_token,
-            httponly=True, secure=True, samesite="lax", path="/", max_age=30 * 86400,
+            httponly=True, secure=True, samesite="lax", path="/", max_age=refresh_max_age,
         )
 
     return resp
@@ -636,6 +638,27 @@ async def auth_me(
             "refresh_token", new_tokens["refresh_token"],
             httponly=True, secure=True, samesite="lax", path="/", max_age=30 * 86400,
         )
+    return resp
+
+
+@app.post("/auth/keep-session")
+async def auth_keep_session(
+    keep: bool = Query(False),
+    refresh_token: str | None = Cookie(None),
+) -> JSONResponse:
+    """Extend or shorten the session based on keep-me-signed-in preference."""
+    resp = JSONResponse(content={"status": "ok"})
+    if refresh_token:
+        if keep:
+            resp.set_cookie(
+                "refresh_token", refresh_token,
+                httponly=True, secure=True, samesite="lax", path="/", max_age=30 * 86400,
+            )
+        else:
+            resp.set_cookie(
+                "refresh_token", refresh_token,
+                httponly=True, secure=True, samesite="lax", path="/",
+            )
     return resp
 
 
@@ -672,7 +695,11 @@ async def drive_status(
     access_token: str | None = Cookie(None),
     refresh_token: str | None = Cookie(None),
 ) -> JSONResponse:
-    """Check if Google Drive is connected for the authenticated user."""
+    """Check if Google Drive is connected for the authenticated user.
+
+    Connection state is determined by the presence of a valid
+    drive_connection_file_id, NOT by the song list contents.
+    """
     user, new_tokens = await coh.get_auth_user(access_token, refresh_token)
     if not user:
         raise HTTPException(401, "Not authenticated")
@@ -681,12 +708,34 @@ async def drive_status(
     if not db_user:
         raise HTTPException(401, "User not found")
 
-    connected = bool(db_user.get("drive_songs_folder_id"))
-    return JSONResponse({
+    has_token = bool(db_user.get("drive_access_token"))
+    has_marker = bool(db_user.get("drive_connection_file_id"))
+    has_folders = bool(db_user.get("drive_songs_folder_id"))
+    connected = has_token and has_folders
+
+    # Check if we have songs
+    has_songs = False
+    if connected and db_user.get("drive_songs_folder_id"):
+        song_rows = await coh.db_query(
+            "SELECT 1 FROM user_songs WHERE user_id = $1 LIMIT 1",
+            [db_user["id"]],
+        )
+        has_songs = len(song_rows) > 0
+
+    data = {
         "connected": connected,
+        "has_songs": has_songs,
         "folder_id": db_user.get("drive_folder_id"),
         "songs_folder_id": db_user.get("drive_songs_folder_id"),
-    })
+        "connection_file_id": db_user.get("drive_connection_file_id"),
+    }
+    resp = JSONResponse(content=data)
+    if new_tokens:
+        resp.set_cookie(
+            "access_token", new_tokens["access_token"],
+            httponly=True, secure=True, samesite="lax", path="/", max_age=3600,
+        )
+    return resp
 
 
 @app.post("/drive/exchange")
@@ -695,7 +744,10 @@ async def drive_exchange(
     access_token: str | None = Cookie(None),
     refresh_token: str | None = Cookie(None),
 ) -> JSONResponse:
-    """Exchange Google OAuth code for Drive tokens and set up folder structure."""
+    """Exchange Google OAuth code for Drive tokens and set up folder structure.
+
+    Creates a connected.txt marker file to persistently record the connection.
+    """
     user, new_tokens = await coh.get_auth_user(access_token, refresh_token)
     if not user:
         raise HTTPException(401, "Not authenticated")
@@ -721,16 +773,37 @@ async def drive_exchange(
     # Ensure folder structure
     try:
         hb_id, songs_id = await gdrive.ensure_folder_structure(drive_access)
-        await gdrive.save_folder_ids(db_user["id"], hb_id, songs_id)
     except Exception as e:
         logger.error("Drive folder setup failed: %s", e)
         raise HTTPException(500, "Failed to set up Drive folders")
 
-    return JSONResponse({
+    # Ensure connection marker
+    existing_marker = db_user.get("drive_connection_file_id")
+    try:
+        marker_id = await gdrive.ensure_connection_marker(drive_access, hb_id, existing_marker)
+    except Exception as e:
+        logger.error("Drive connection marker failed: %s", e)
+        raise HTTPException(500, "Failed to create Drive connection marker")
+
+    # Persist all IDs
+    await gdrive.save_folder_ids(db_user["id"], hb_id, songs_id)
+    await coh.db_query(
+        "UPDATE users SET drive_connection_file_id = $1 WHERE id = $2",
+        [marker_id, db_user["id"]],
+    )
+
+    resp = JSONResponse(content={
         "status": "connected",
         "folder_id": hb_id,
         "songs_folder_id": songs_id,
+        "connection_file_id": marker_id,
     })
+    if new_tokens:
+        resp.set_cookie(
+            "access_token", new_tokens["access_token"],
+            httponly=True, secure=True, samesite="lax", path="/", max_age=3600,
+        )
+    return resp
 
 
 @app.post("/drive/disconnect")
@@ -1171,6 +1244,116 @@ async def save_song(
         song_id = rows[0]["id"]
 
     resp = JSONResponse(content={"song_id": song_id, "file_hash": file_hash, "drive_file_id": drive_file_id if not existing else existing[0].get("drive_file_id")})
+    if new_tokens:
+        resp.set_cookie(
+            "access_token", new_tokens["access_token"],
+            httponly=True, secure=True, samesite="lax", path="/", max_age=3600,
+        )
+    return resp
+
+
+@app.post("/library/songs/save-analysis")
+async def save_song_with_analysis(
+    file: UploadFile = File(...),
+    analysis_json: str = Query(..., description="JSON-serialized analysis result"),
+    mode: str = Query("music", pattern="^(music|drumming)$"),
+    filename: str = Query("", description="Original filename"),
+    access_token: str | None = Cookie(None),
+    refresh_token: str | None = Cookie(None),
+) -> JSONResponse:
+    """Save a song with its existing analysis to the library.
+
+    Does NOT re-run analysis. Uses the provided analysis JSON directly.
+    Uploads audio to Drive for persistent storage.
+    """
+    user, new_tokens = await coh.get_auth_user(access_token, refresh_token)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    db_user = await coh.get_user_by_cohesivity_id(user["id"])
+    if not db_user:
+        db_user = await coh.upsert_user(user["id"], user["email"], user.get("name"), user.get("picture"))
+
+    content = await file.read()
+    import hashlib
+    file_hash = hashlib.sha256(content).hexdigest()
+
+    # Check if song already exists by hash
+    existing = await coh.db_query(
+        "SELECT id, drive_file_id FROM user_songs WHERE user_id = $1 AND file_hash = $2",
+        [db_user["id"], file_hash],
+    )
+
+    if existing:
+        song_id = existing[0]["id"]
+        await coh.db_query(
+            "UPDATE user_songs SET last_played = NOW() WHERE id = $1",
+            [song_id],
+        )
+        resp = JSONResponse(content={"song_id": song_id, "file_hash": file_hash, "status": "already_saved"})
+        if new_tokens:
+            resp.set_cookie(
+                "access_token", new_tokens["access_token"],
+                httponly=True, secure=True, samesite="lax", path="/", max_age=3600,
+            )
+        return resp
+
+    # Require Drive connection
+    drive_token = await gdrive._get_valid_token(db_user)
+    songs_folder_id = db_user.get("drive_songs_folder_id") if db_user else None
+    if not drive_token or not songs_folder_id:
+        raise HTTPException(
+            400,
+            "Connect Google Drive to save songs to your library.",
+        )
+
+    # Get duration
+    duration = None
+    try:
+        import io
+        import soundfile as sf
+        audio_data, sr = sf.read(io.BytesIO(content), dtype="float32")
+        duration = len(audio_data) / sr
+    except Exception:
+        pass
+
+    # Upload to Drive
+    try:
+        mime_type = file.content_type or "application/octet-stream"
+        drive_file_id = await gdrive.upload_file(
+            drive_token, songs_folder_id,
+            filename or file.filename or "audio", mime_type, content,
+        )
+    except Exception as e:
+        logger.error("Drive upload failed: %s", e)
+        raise HTTPException(500, "Failed to upload to Google Drive")
+
+    # Save song record
+    rows = await coh.db_query(
+        """
+        INSERT INTO user_songs (user_id, filename, original_name, file_hash, file_size, duration_seconds, analysis_mode, drive_file_id, last_played)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+        RETURNING id
+        """,
+        [db_user["id"], filename or file.filename, filename or file.filename, file_hash, len(content), duration, mode, drive_file_id],
+    )
+    song_id = rows[0]["id"]
+
+    # Save analysis (pre-existing, do NOT re-analyze)
+    try:
+        analysis_data = json.loads(analysis_json)
+    except json.JSONDecodeError:
+        raise HTTPException(400, "Invalid analysis JSON")
+
+    await coh.db_query(
+        """
+        INSERT INTO song_analysis (song_id, analysis_data, analysis_mode)
+        VALUES ($1, $2, $3)
+        """,
+        [song_id, json.dumps(analysis_data), mode],
+    )
+
+    resp = JSONResponse(content={"song_id": song_id, "file_hash": file_hash, "drive_file_id": drive_file_id, "status": "saved"})
     if new_tokens:
         resp.set_cookie(
             "access_token", new_tokens["access_token"],

@@ -22,6 +22,8 @@ interface AuthContextType {
   login: (returnTo?: string) => void;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
+  keepSignedIn: boolean;
+  setKeepSignedIn: (v: boolean) => void;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -30,6 +32,8 @@ const AuthContext = createContext<AuthContextType>({
   login: () => {},
   logout: async () => {},
   refresh: async () => {},
+  keepSignedIn: true,
+  setKeepSignedIn: () => {},
 });
 
 export function useAuth() {
@@ -39,6 +43,18 @@ export function useAuth() {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<CohesivityUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [keepSignedIn, setKeepSignedInState] = useState(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("hearbeat_keep_signed_in");
+      return stored !== null ? stored === "true" : true;
+    }
+    return true;
+  });
+
+  const setKeepSignedIn = useCallback((v: boolean) => {
+    setKeepSignedInState(v);
+    localStorage.setItem("hearbeat_keep_signed_in", String(v));
+  }, []);
 
   const checkAuth = useCallback(async () => {
     try {
@@ -62,6 +78,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     checkAuth();
   }, [checkAuth]);
+
+  useEffect(() => {
+    if (!user || loading) return;
+    const stored = localStorage.getItem("hearbeat_keep_signed_in");
+    if (stored === "true") {
+      fetch(`${API_BASE}/auth/keep-session?keep=true`, {
+        method: "POST",
+        credentials: "include",
+      }).catch(() => {});
+    }
+  }, [user, loading]);
 
   const login = useCallback((returnTo?: string) => {
     const rt = returnTo || window.location.pathname;
@@ -87,7 +114,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [checkAuth]);
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, refresh }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, refresh, keepSignedIn, setKeepSignedIn }}>
       {children}
     </AuthContext.Provider>
   );

@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useEffect, useCallback, useState } from 'react';
-import { Vibrate, Volume2 } from 'lucide-react';
+import { Vibrate, Volume2, Save } from 'lucide-react';
 import { getOriginalAudioUrl } from '@/lib/api';
 import { HapticController } from '@/lib/haptic-controller';
 import { useTheme } from '@/lib/theme';
@@ -17,6 +17,8 @@ interface MusicAudioPlayerProps {
   onHapticSettingsClick: () => void;
   hapticEnabled: boolean;
   audioSrc?: string;
+  saveState?: 'idle' | 'saving' | 'saved';
+  onSave?: () => void;
 }
 
 function formatTime(t: number) {
@@ -36,6 +38,8 @@ export default function MusicAudioPlayer({
   onHapticSettingsClick,
   hapticEnabled,
   audioSrc: audioSrcProp,
+  saveState = 'idle',
+  onSave,
 }: MusicAudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const initializedRef = useRef(false);
@@ -220,6 +224,26 @@ export default function MusicAudioPlayer({
             }}
           />
         </button>
+
+        {/* Save — right of center */}
+        {onSave && (
+          <button
+            onClick={onSave}
+            disabled={saveState === 'saving'}
+            className="p-2 flex items-center justify-center shrink-0 absolute"
+            style={{
+              right: '56px',
+              color: saveState === 'saved' ? 'var(--success)' : 'var(--text-muted)',
+              border: '1px solid var(--border)',
+              borderRadius: '2px',
+              transition: 'border-color 180ms ease, color 180ms ease',
+            }}
+            aria-label={saveState === 'saved' ? 'Saved' : 'Save song'}
+            title={saveState === 'saved' ? 'Saved to library' : 'Save to library'}
+          >
+            <Save size={16} />
+          </button>
+        )}
 
         {/* Haptic settings — right */}
         <button
