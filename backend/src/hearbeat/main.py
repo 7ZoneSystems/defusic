@@ -1287,9 +1287,13 @@ async def save_song(
     return resp
 
 
+MAX_DECOMPRESSED_ANALYSIS_BYTES = 50 * 1024 * 1024  # 50 MB safety limit
+
+
 @app.post("/library/songs/save-analysis")
 async def save_song_with_analysis(
     file: UploadFile = File(...),
+    analysis_json_gzip: UploadFile | None = File(None),
     analysis_json: str | None = Form(None),
     analysis_json_query: str | None = Query(None, alias="analysis_json"),
     mode: str = Form("music"),
@@ -1302,11 +1306,34 @@ async def save_song_with_analysis(
     """Save a song with its existing analysis to the library.
 
     Does NOT re-run analysis. Uses the provided analysis JSON directly.
+    Supports compressed gzip analysis transport for large payloads.
     Uploads audio to Drive for persistent storage.
     """
-    effective_analysis_json = analysis_json or analysis_json_query
+    effective_analysis_json: str | None = None
+
+    # 1. Preferred path: decompress gzip analysis payload
+    if analysis_json_gzip:
+        try:
+            gzip_bytes = await analysis_json_gzip.read()
+            if gzip_bytes:
+                import gzip
+                decompressed = gzip.decompress(gzip_bytes)
+                if len(decompressed) > MAX_DECOMPRESSED_ANALYSIS_BYTES:
+                    raise HTTPException(413, "Decompressed analysis payload exceeds maximum size limit (50 MB)")
+                effective_analysis_json = decompressed.decode("utf-8")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.warning("Failed to decompress gzip analysis payload: %s", e)
+            raise HTTPException(400, "Invalid gzip analysis payload")
+
+    # 2. Fallback path: plain JSON string from form data or query
+    if not effective_analysis_json:
+        effective_analysis_json = analysis_json or analysis_json_query
+
     if not effective_analysis_json:
         raise HTTPException(400, "Missing analysis JSON")
+
     effective_mode = mode_query or mode or "music"
     effective_filename = filename_query or filename or file.filename or "audio"
 

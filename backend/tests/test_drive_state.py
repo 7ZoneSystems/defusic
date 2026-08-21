@@ -330,6 +330,122 @@ class TestKeepSession:
 
 
 class TestSaveFlow:
+    def test_save_gzip_compressed_analysis(self, client):
+        """analysis_json_gzip binary file is decompressed and saved successfully."""
+        import gzip
+        user = _authenticated_user()
+        db_user = {
+            "id": 42,
+            "cohesivity_user_id": 1,
+            "drive_songs_folder_id": "songs_abc",
+            "drive_access_token": "encrypted_tok",
+        }
+        original_analysis = {"tempo": 128.0, "events": [{"time": 0.5, "type": "beat"}]}
+        compressed_bytes = gzip.compress(json.dumps(original_analysis).encode("utf-8"))
+
+        with (
+            patch("hearbeat.main.coh.get_auth_user", new_callable=AsyncMock, return_value=(user, None)),
+            patch("hearbeat.main.coh.get_user_by_cohesivity_id", new_callable=AsyncMock, return_value=db_user),
+            patch("hearbeat.main.coh.upsert_user", new_callable=AsyncMock, return_value=db_user),
+            patch("hearbeat.main.coh.db_query", new_callable=AsyncMock, side_effect=[
+                [],  # existing song check
+                [{"id": 105}],  # insert song index
+            ]),
+            patch("hearbeat.main.gdrive._get_valid_token", new_callable=AsyncMock, return_value="drive_tok"),
+            patch("hearbeat.main.gdrive.upload_file", new_callable=AsyncMock, return_value="drive_audio_id"),
+            patch("hearbeat.main.gdrive.upload_analysis_file", new_callable=AsyncMock, return_value="drive_analysis_id") as mock_upload,
+        ):
+            resp = client.post(
+                "/library/songs/save-analysis",
+                data={"mode": "music", "filename": "track.mp3"},
+                files={
+                    "file": ("track.mp3", b"audio_bytes", "audio/mpeg"),
+                    "analysis_json_gzip": ("analysis.json.gz", compressed_bytes, "application/gzip"),
+                },
+                cookies={"access_token": "valid", "refresh_token": "valid"},
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["status"] == "saved"
+            assert data["song_id"] == 105
+            assert data["analysis_drive_file_id"] == "drive_analysis_id"
+            mock_upload.assert_called_once()
+            # Verify decompressed payload passed to Drive upload matches original analysis exactly
+            assert mock_upload.call_args.kwargs["analysis_dict"] == original_analysis
+
+    def test_save_large_compressed_analysis_over_1mb_uncompressed(self, client):
+        """Large analysis (>1 MiB uncompressed) compresses to small gzip and saves cleanly."""
+        import gzip
+        user = _authenticated_user()
+        db_user = {
+            "id": 42,
+            "cohesivity_user_id": 1,
+            "drive_songs_folder_id": "songs_abc",
+            "drive_access_token": "encrypted_tok",
+        }
+        # Build >1.2 MiB uncompressed analysis object
+        large_events = [{"time": i * 0.05, "type": "beat", "strength": 0.8, "notes": "x" * 100} for i in range(10000)]
+        large_analysis = {"tempo": 120.0, "events": large_events}
+        uncompressed_json = json.dumps(large_analysis)
+        assert len(uncompressed_json.encode("utf-8")) > 1024 * 1024  # > 1 MiB
+
+        compressed_bytes = gzip.compress(uncompressed_json.encode("utf-8"))
+        # Verify gzip compression ratio (>10x reduction on repetitive JSON)
+        assert len(compressed_bytes) < 150 * 1024  # < 150 KB
+
+        with (
+            patch("hearbeat.main.coh.get_auth_user", new_callable=AsyncMock, return_value=(user, None)),
+            patch("hearbeat.main.coh.get_user_by_cohesivity_id", new_callable=AsyncMock, return_value=db_user),
+            patch("hearbeat.main.coh.upsert_user", new_callable=AsyncMock, return_value=db_user),
+            patch("hearbeat.main.coh.db_query", new_callable=AsyncMock, side_effect=[
+                [],  # existing song check
+                [{"id": 106}],  # insert song index
+            ]),
+            patch("hearbeat.main.gdrive._get_valid_token", new_callable=AsyncMock, return_value="drive_tok"),
+            patch("hearbeat.main.gdrive.upload_file", new_callable=AsyncMock, return_value="drive_audio_large"),
+            patch("hearbeat.main.gdrive.upload_analysis_file", new_callable=AsyncMock, return_value="drive_analysis_large") as mock_upload,
+        ):
+            resp = client.post(
+                "/library/songs/save-analysis",
+                data={"mode": "music", "filename": "large_track.mp3"},
+                files={
+                    "file": ("large_track.mp3", b"audio_bytes", "audio/mpeg"),
+                    "analysis_json_gzip": ("analysis.json.gz", compressed_bytes, "application/gzip"),
+                },
+                cookies={"access_token": "valid", "refresh_token": "valid"},
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["status"] == "saved"
+            assert data["song_id"] == 106
+            assert len(mock_upload.call_args.kwargs["analysis_dict"]["events"]) == 10000
+
+    def test_save_malformed_gzip_returns_400(self, client):
+        """Corrupted/malformed gzip bytes return 400."""
+        user = _authenticated_user()
+        db_user = {
+            "id": 42,
+            "cohesivity_user_id": 1,
+            "drive_songs_folder_id": "songs_abc",
+            "drive_access_token": "encrypted_tok",
+        }
+        with (
+            patch("hearbeat.main.coh.get_auth_user", new_callable=AsyncMock, return_value=(user, None)),
+            patch("hearbeat.main.coh.get_user_by_cohesivity_id", new_callable=AsyncMock, return_value=db_user),
+            patch("hearbeat.main.coh.upsert_user", new_callable=AsyncMock, return_value=db_user),
+        ):
+            resp = client.post(
+                "/library/songs/save-analysis",
+                data={"mode": "music", "filename": "track.mp3"},
+                files={
+                    "file": ("track.mp3", b"audio_bytes", "audio/mpeg"),
+                    "analysis_json_gzip": ("analysis.json.gz", b"not_valid_gzip_bytes_12345", "application/gzip"),
+                },
+                cookies={"access_token": "valid", "refresh_token": "valid"},
+            )
+            assert resp.status_code == 400
+            assert "Invalid gzip" in resp.json()["detail"]
+
     def test_save_multipart_form_data(self, client):
         """analysis_json sent in multipart form data body works without query params."""
         user = _authenticated_user()

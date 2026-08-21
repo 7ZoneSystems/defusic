@@ -149,6 +149,15 @@ export async function saveSongToLibrary(
   return res.json();
 }
 
+async function compressGzip(text: string): Promise<Blob> {
+  if (typeof CompressionStream !== "undefined") {
+    const stream = new Blob([text], { type: "application/json" }).stream();
+    const compressedStream = stream.pipeThrough(new CompressionStream("gzip"));
+    return new Response(compressedStream).blob();
+  }
+  return new Blob([text], { type: "application/json" });
+}
+
 export async function saveSongAnalysis(
   file: File,
   analysisJson: string,
@@ -157,9 +166,21 @@ export async function saveSongAnalysis(
 ): Promise<{ song_id: number; file_hash: string; status: string }> {
   const form = new FormData();
   form.append("file", file);
-  form.append("analysis_json", analysisJson);
   form.append("mode", mode);
   form.append("filename", filename || file.name);
+
+  if (typeof CompressionStream !== "undefined") {
+    try {
+      const compressedBlob = await compressGzip(analysisJson);
+      form.append("analysis_json_gzip", compressedBlob, "analysis.json.gz");
+    } catch (e) {
+      console.warn("Gzip compression failed, falling back to uncompressed JSON:", e);
+      form.append("analysis_json", analysisJson);
+    }
+  } else {
+    form.append("analysis_json", analysisJson);
+  }
+
   const res = await fetch(`${API_BASE}/library/songs/save-analysis`, {
     method: "POST",
     credentials: "include",
