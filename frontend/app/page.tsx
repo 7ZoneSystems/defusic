@@ -16,7 +16,8 @@ import DrumPatternView from '@/components/DrumPatternView';
 import AnalysisProgress from '@/components/AnalysisProgress';
 import MusicExperience from '@/components/MusicExperience';
 import HapticPanel from '@/components/HapticPanel';
-import { analyzeFile, checkHealth, getHapticTimeline, getLibrarySongHapticTimeline, getJsonDownloadUrl, getWaveformData, getLibrarySongAnalysis, getDriveDownloadUrl, downloadDriveAudioBlob, saveSongAnalysis, fetchLibrarySongs } from '@/lib/api';
+import { analyzeFile, checkHealth, getHapticTimeline, getLibrarySongHapticTimeline, getJsonDownloadUrl, getWaveformData, getLibrarySongAnalysis, getDriveDownloadUrl, downloadDriveAudioBlob, saveSongAnalysis, fetchLibrarySongs, LibrarySong } from '@/lib/api';
+import SavedSongsSheet from '@/components/SavedSongsSheet';
 import { AnalysisResult, AnalysisMode, AppState, DiagnosticLayer, WaveformData } from '@/lib/types';
 import { DRUM_LAYERS, MUSIC_LAYERS } from '@/lib/types';
 import { HapticConfig, HapticEvent, HapticTimeline, DEFAULT_HAPTIC_CONFIG } from '@/lib/haptic-types';
@@ -82,6 +83,140 @@ function HomeContent() {
   const hapticInitRef = useRef(false);
   const { user } = useAuth();
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
+
+  // Queue state
+  const [queue, setQueue] = useState<LibrarySong[]>([]);
+  const [queueLoading, setQueueLoading] = useState(false);
+  const [queueOpen, setQueueOpen] = useState(false);
+  const songLoadVersionRef = useRef(0);
+
+  // Lazy load library queue when user is authenticated
+  useEffect(() => {
+    let active = true;
+    if (!user) {
+      Promise.resolve().then(() => {
+        if (active) setQueue([]);
+      });
+      return () => { active = false; };
+    }
+    Promise.resolve().then(() => {
+      if (!active) return;
+      setQueueLoading(true);
+      fetchLibrarySongs()
+        .then((songs) => {
+          if (active) setQueue(songs);
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (active) setQueueLoading(false);
+        });
+    });
+    return () => { active = false; };
+  }, [user]);
+
+  // Unified glitch-free library song loader
+  const loadLibrarySongById = useCallback(async (songId: number) => {
+    const version = ++songLoadVersionRef.current;
+    try {
+      // 1. Stop current audio & haptics immediately
+      hapticController?.stop();
+      setCurrentTime(0);
+      setEngineStatus('analyzing');
+      setState('analyzing');
+
+      // 2. Fetch saved analysis
+      const data = await getLibrarySongAnalysis(songId);
+      if (version !== songLoadVersionRef.current) return;
+
+      const analysisResult = data.analysis as unknown as AnalysisResult;
+      setResult(analysisResult);
+      setMode(data.analysis_mode as AnalysisMode);
+      setJobId('');
+      setCurrentSongId(songId);
+      setSaveState('saved');
+
+      // 3. Fetch Drive audio blob
+      if (data.drive_file_id) {
+        try {
+          const blob = await downloadDriveAudioBlob(data.drive_file_id);
+          if (version !== songLoadVersionRef.current) return;
+          const blobUrl = URL.createObjectURL(blob);
+          if (libraryAudioBlobUrlRef.current && libraryAudioBlobUrlRef.current !== blobUrl) {
+            URL.revokeObjectURL(libraryAudioBlobUrlRef.current);
+          }
+          libraryAudioBlobUrlRef.current = blobUrl;
+          setLibraryAudioSrc(blobUrl);
+        } catch (downloadErr) {
+          console.warn('Authenticated Drive blob download failed:', downloadErr);
+          if (version !== songLoadVersionRef.current) return;
+          setLibraryAudioSrc(getDriveDownloadUrl(data.drive_file_id));
+        }
+      }
+
+      // 4. Fetch saved haptic timeline
+      const hapticData = await getLibrarySongHapticTimeline(songId).catch(() => null);
+      if (version !== songLoadVersionRef.current) return;
+      if (hapticData) {
+        setHapticTimeline(hapticData);
+      }
+
+      // 5. Complete state
+      setState('complete');
+      setEngineStatus('online');
+
+      // Update URL without page reload
+      window.history.replaceState(
+        {},
+        '',
+        `/?library=${songId}${data.analysis_mode === 'drumming' ? '&mode=drumming' : ''}`
+      );
+    } catch (err) {
+      if (version !== songLoadVersionRef.current) return;
+      setError(err instanceof Error ? err.message : 'Failed to load library song');
+      setState('error');
+      setEngineStatus('online');
+    }
+  }, [hapticController]);
+
+  // Initial load when ?library= param is present
+  useEffect(() => {
+    if (!librarySongId) return;
+    const songId = parseInt(librarySongId, 10);
+    if (isNaN(songId)) return;
+    Promise.resolve().then(() => {
+      loadLibrarySongById(songId);
+    });
+  }, [librarySongId, loadLibrarySongById]);
+
+  // Queue navigation calculations
+  const currentQueueIndex = queue.findIndex((s) => s.id === currentSongId);
+  const hasQueue = currentSongId !== null && queue.length > 0 && currentQueueIndex !== -1;
+  const hasPrevious = hasQueue && (currentQueueIndex > 0 || currentTime > 3.0);
+  const hasNext = hasQueue && currentQueueIndex < queue.length - 1;
+
+  const handlePrevious = useCallback(() => {
+    if (!hasQueue) return;
+    if (currentTime > 3.0) {
+      setCurrentTime(0);
+      hapticController?.seek(0);
+    } else if (currentQueueIndex > 0) {
+      const prevSong = queue[currentQueueIndex - 1];
+      loadLibrarySongById(prevSong.id);
+    }
+  }, [hasQueue, currentTime, currentQueueIndex, queue, hapticController, loadLibrarySongById]);
+
+  const handleNext = useCallback(() => {
+    if (!hasQueue || currentQueueIndex >= queue.length - 1) return;
+    const nextSong = queue[currentQueueIndex + 1];
+    loadLibrarySongById(nextSong.id);
+  }, [hasQueue, currentQueueIndex, queue, loadLibrarySongById]);
+
+  const handleSongEnded = useCallback(() => {
+    if (hasQueue && currentQueueIndex < queue.length - 1) {
+      const nextSong = queue[currentQueueIndex + 1];
+      loadLibrarySongById(nextSong.id);
+    }
+  }, [hasQueue, currentQueueIndex, queue, loadLibrarySongById]);
 
   // Initialize haptic driver once
   useEffect(() => {
@@ -149,68 +284,6 @@ function HomeContent() {
     tryRestore();
     return () => { active = false; };
   }, []);
-
-  // Load library song when ?library= query param is present
-  useEffect(() => {
-    if (!librarySongId) return;
-    const songId = parseInt(librarySongId, 10);
-    if (isNaN(songId)) return;
-
-    let active = true;
-
-    async function loadLibrarySong() {
-      try {
-        setState('analyzing');
-        setEngineStatus('analyzing');
-
-        const data = await getLibrarySongAnalysis(songId);
-        if (!active) return;
-
-        // Cast analysis data to AnalysisResult
-        const analysisResult = data.analysis as unknown as AnalysisResult;
-        setResult(analysisResult);
-        setMode(data.analysis_mode as AnalysisMode);
-        setJobId('');
-        setCurrentSongId(songId);
-        setSaveState('saved');
-
-        // Set audio source from Drive via authenticated blob download
-        if (data.drive_file_id) {
-          try {
-            const blob = await downloadDriveAudioBlob(data.drive_file_id);
-            if (!active) return;
-            const blobUrl = URL.createObjectURL(blob);
-            if (libraryAudioBlobUrlRef.current && libraryAudioBlobUrlRef.current !== blobUrl) {
-              URL.revokeObjectURL(libraryAudioBlobUrlRef.current);
-            }
-            libraryAudioBlobUrlRef.current = blobUrl;
-            setLibraryAudioSrc(blobUrl);
-          } catch (downloadErr) {
-            console.warn('Authenticated Drive blob download failed, falling back to direct URL:', downloadErr);
-            if (!active) return;
-            setLibraryAudioSrc(getDriveDownloadUrl(data.drive_file_id));
-          }
-        }
-
-        // Load haptic timeline from saved analysis directly
-        const hapticData = await getLibrarySongHapticTimeline(songId).catch(() => null);
-        if (active && hapticData) {
-          setHapticTimeline(hapticData);
-        }
-
-        setState('complete');
-        setEngineStatus('online');
-      } catch (err) {
-        if (!active) return;
-        setError(err instanceof Error ? err.message : 'Failed to load library song');
-        setState('error');
-        setEngineStatus('online');
-      }
-    }
-
-    loadLibrarySong();
-    return () => { active = false; };
-  }, [librarySongId]);
 
   // Sync haptic enabled state with config
   useEffect(() => {
@@ -573,7 +646,25 @@ function HomeContent() {
             audioSrc={libraryAudioSrc || undefined}
             saveState={saveState}
             onSave={handleSave}
-          />
+            onPrevious={hasQueue ? handlePrevious : undefined}
+            onNext={hasQueue ? handleNext : undefined}
+            hasPrevious={hasPrevious}
+            hasNext={hasNext}
+            onOpenQueue={user ? () => setQueueOpen(true) : undefined}
+            queueLength={queue.length}
+            onEnded={hasQueue ? handleSongEnded : undefined}
+          >
+            {user && (
+              <SavedSongsSheet
+                open={queueOpen}
+                onClose={() => setQueueOpen(false)}
+                queue={queue}
+                currentSongId={currentSongId}
+                onSelectSong={(songId) => loadLibrarySongById(songId)}
+                loading={queueLoading}
+              />
+            )}
+          </MusicExperience>
         )}
 
         {/* Analysis Workspace — Drumming mode */}

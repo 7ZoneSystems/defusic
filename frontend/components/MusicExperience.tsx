@@ -25,6 +25,14 @@ interface MusicExperienceProps {
   audioSrc?: string;
   saveState?: 'idle' | 'saving' | 'saved';
   onSave?: () => void;
+  onPrevious?: () => void;
+  onNext?: () => void;
+  hasPrevious?: boolean;
+  hasNext?: boolean;
+  onOpenQueue?: () => void;
+  queueLength?: number;
+  onEnded?: () => void;
+  children?: React.ReactNode;
 }
 
 export default function MusicExperience({
@@ -41,6 +49,14 @@ export default function MusicExperience({
   audioSrc,
   saveState = 'idle',
   onSave,
+  onPrevious,
+  onNext,
+  hasPrevious,
+  hasNext,
+  onOpenQueue,
+  queueLength,
+  onEnded,
+  children,
 }: MusicExperienceProps) {
   const [volume, setVolume] = useState(0.7);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -154,6 +170,13 @@ export default function MusicExperience({
             audioSrc={audioSrc}
             saveState={saveState}
             onSave={onSave}
+            onPrevious={onPrevious}
+            onNext={onNext}
+            hasPrevious={hasPrevious}
+            hasNext={hasNext}
+            onOpenQueue={onOpenQueue}
+            queueLength={queueLength}
+            onEnded={onEnded}
           />
         </div>
 
@@ -179,6 +202,9 @@ export default function MusicExperience({
         config={hapticConfig}
         onConfigChange={onHapticConfigChange}
       />
+
+      {/* Queue Drawer / Sheet */}
+      {children}
     </div>
   );
 }

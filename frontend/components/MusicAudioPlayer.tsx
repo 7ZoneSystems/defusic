@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useEffect, useCallback, useState } from 'react';
-import { Vibrate, Volume2, Save, Check, Loader2 } from 'lucide-react';
+import { Vibrate, Volume2, Save, Check, Loader2, SkipBack, SkipForward, ChevronUp } from 'lucide-react';
 import { getOriginalAudioUrl } from '@/lib/api';
 import { HapticController } from '@/lib/haptic-controller';
 import { useTheme } from '@/lib/theme';
@@ -19,6 +19,13 @@ interface MusicAudioPlayerProps {
   audioSrc?: string;
   saveState?: 'idle' | 'saving' | 'saved';
   onSave?: () => void;
+  onPrevious?: () => void;
+  onNext?: () => void;
+  hasPrevious?: boolean;
+  hasNext?: boolean;
+  onOpenQueue?: () => void;
+  queueLength?: number;
+  onEnded?: () => void;
 }
 
 function formatTime(t: number) {
@@ -40,13 +47,24 @@ export default function MusicAudioPlayer({
   audioSrc: audioSrcProp,
   saveState = 'idle',
   onSave,
+  onPrevious,
+  onNext,
+  hasPrevious = false,
+  hasNext = false,
+  onOpenQueue,
+  queueLength = 0,
+  onEnded,
 }: MusicAudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [pulse, setPulse] = useState(false);
   const onTimeUpdateRef = useRef(onTimeUpdate);
+  const onEndedRef = useRef(onEnded);
+  const playerTouchStartY = useRef<number | null>(null);
   const { resolved } = useTheme();
+
   useEffect(() => { onTimeUpdateRef.current = onTimeUpdate; });
+  useEffect(() => { onEndedRef.current = onEnded; });
 
   const audioSrc = audioSrcProp || getOriginalAudioUrl(jobId);
 
@@ -84,6 +102,9 @@ export default function MusicAudioPlayer({
     const handleEnded = () => {
       setPlaying(false);
       hapticController.stop();
+      if (onEndedRef.current) {
+        onEndedRef.current();
+      }
     };
     const handleSeeking = () => hapticController.pause();
     const handleSeeked = () => {
@@ -143,8 +164,26 @@ export default function MusicAudioPlayer({
     }
   }, []);
 
+  const handleTouchStart = (e: React.TouchEvent) => {
+    playerTouchStartY.current = e.touches[0].clientY;
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (playerTouchStartY.current === null) return;
+    const deltaY = e.changedTouches[0].clientY - playerTouchStartY.current;
+    playerTouchStartY.current = null;
+    if (deltaY < -45 && onOpenQueue) {
+      onOpenQueue();
+    }
+  };
+
   return (
-    <div className="flex flex-col items-center gap-3 w-full" style={{ maxWidth: 'min(480px, 80vw)' }}>
+    <div
+      className="flex flex-col items-center gap-2.5 w-full select-none"
+      style={{ maxWidth: 'min(480px, 85vw)' }}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+    >
       <audio ref={audioRef} preload="auto" />
 
       {/* Time + Progress */}
@@ -176,10 +215,10 @@ export default function MusicAudioPlayer({
         </span>
       </div>
 
-      {/* Controls row: volume | play | haptics */}
-      <div className="flex items-center justify-center w-full relative">
-        {/* Volume — left */}
-        <div className="flex items-center gap-1.5 shrink-0 absolute" style={{ left: '16px' }}>
+      {/* Controls row: Volume | Previous - Play - Next | Save | Haptics */}
+      <div className="flex items-center justify-between w-full px-1 relative">
+        {/* Left: Volume slider */}
+        <div className="flex items-center gap-1.5 shrink-0">
           <Volume2 size={14} style={{ color: 'var(--text-muted)' }} />
           <input
             type="range"
@@ -188,109 +227,164 @@ export default function MusicAudioPlayer({
             step={0.01}
             value={volume}
             onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
-            className="w-20"
+            className="w-16 sm:w-20"
             style={{ height: 3, accentColor: 'var(--gold)' }}
             aria-label="Song volume"
           />
         </div>
 
-        {/* Play/Pause — large centered */}
-        <button
-          onClick={togglePlay}
-          className="flex items-center justify-center"
-          style={{
-            width: 100,
-            height: 100,
-            background: 'none',
-            border: 'none',
-            borderRadius: '2px',
-            transition: 'transform 180ms ease',
-            transform: pulse ? 'scale(1.06)' : 'scale(1)',
-            padding: 0,
-          }}
-          aria-label={playing ? 'Pause' : 'Play'}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={playing ? pauseImg : playImg}
-            alt=""
-            style={{
-              width: 64,
-              height: 64,
-              objectFit: 'contain',
-              transition: 'opacity 150ms ease',
-            }}
-          />
-        </button>
+        {/* Center: Previous / Play-Pause / Next */}
+        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+          {/* Previous Button */}
+          {onPrevious && (
+            <button
+              onClick={onPrevious}
+              disabled={!hasPrevious}
+              className="p-2 rounded-full transition-all flex items-center justify-center hover:bg-accent/10 disabled:opacity-30 disabled:cursor-not-allowed"
+              style={{
+                color: hasPrevious ? 'var(--text-primary)' : 'var(--text-muted)',
+              }}
+              aria-label="Previous song"
+              title="Previous song"
+            >
+              <SkipBack size={18} />
+            </button>
+          )}
 
-        {/* Save — right of center */}
-        {onSave && (
+          {/* Main Play/Pause Button */}
           <button
-            onClick={onSave}
-            disabled={saveState === 'saving'}
-            className="p-2 flex items-center justify-center shrink-0 absolute"
+            onClick={togglePlay}
+            className="flex items-center justify-center"
             style={{
-              right: '56px',
-              color: saveState === 'saved'
-                ? 'var(--success)'
-                : saveState === 'saving'
-                  ? 'var(--accent)'
-                  : 'var(--text-muted)',
-              border: saveState === 'saved'
-                ? '1px solid var(--success)'
-                : saveState === 'saving'
-                  ? '1px solid var(--accent)'
-                  : '1px solid var(--border)',
-              background: saveState === 'saved'
-                ? 'color-mix(in srgb, var(--success) 12%, transparent)'
-                : saveState === 'saving'
-                  ? 'color-mix(in srgb, var(--accent) 12%, transparent)'
-                  : 'transparent',
+              width: 84,
+              height: 84,
+              background: 'none',
+              border: 'none',
               borderRadius: '2px',
-              cursor: saveState === 'saving' ? 'not-allowed' : 'pointer',
-              transition: 'border-color 180ms ease, color 180ms ease, background-color 180ms ease',
+              transition: 'transform 180ms ease',
+              transform: pulse ? 'scale(1.06)' : 'scale(1)',
+              padding: 0,
             }}
-            aria-label={
-              saveState === 'saved'
-                ? 'Saved'
-                : saveState === 'saving'
-                  ? 'Saving song...'
-                  : 'Save song'
-            }
-            title={
-              saveState === 'saved'
-                ? 'Saved to library'
-                : saveState === 'saving'
-                  ? 'Saving to library...'
-                  : 'Save to library'
-            }
+            aria-label={playing ? 'Pause' : 'Play'}
           >
-            {saveState === 'saving' ? (
-              <Loader2 size={16} className="animate-spin" />
-            ) : saveState === 'saved' ? (
-              <Check size={16} />
-            ) : (
-              <Save size={16} />
-            )}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={playing ? pauseImg : playImg}
+              alt=""
+              style={{
+                width: 58,
+                height: 58,
+                objectFit: 'contain',
+                transition: 'opacity 150ms ease',
+              }}
+            />
           </button>
-        )}
 
-        {/* Haptic settings — right */}
-        <button
-          onClick={onHapticSettingsClick}
-          className="p-2 flex items-center justify-center shrink-0 absolute"
-          style={{
-            right: '16px',
-            color: hapticEnabled ? 'var(--success)' : 'var(--text-muted)',
-            border: '1px solid var(--border)',
-            borderRadius: '2px',
-            transition: 'border-color 180ms ease',
-          }}
-          aria-label="Haptic settings"
-        >
-          <Vibrate size={16} />
-        </button>
+          {/* Next Button */}
+          {onNext && (
+            <button
+              onClick={onNext}
+              disabled={!hasNext}
+              className="p-2 rounded-full transition-all flex items-center justify-center hover:bg-accent/10 disabled:opacity-30 disabled:cursor-not-allowed"
+              style={{
+                color: hasNext ? 'var(--text-primary)' : 'var(--text-muted)',
+              }}
+              aria-label="Next song"
+              title="Next song"
+            >
+              <SkipForward size={18} />
+            </button>
+          )}
+        </div>
+
+        {/* Right: Save & Haptic buttons */}
+        <div className="flex items-center gap-2 shrink-0">
+          {/* Save Button */}
+          {onSave && (
+            <button
+              onClick={onSave}
+              disabled={saveState === 'saving'}
+              className="p-2 flex items-center justify-center shrink-0"
+              style={{
+                color: saveState === 'saved'
+                  ? 'var(--success)'
+                  : saveState === 'saving'
+                    ? 'var(--accent)'
+                    : 'var(--text-muted)',
+                border: saveState === 'saved'
+                  ? '1px solid var(--success)'
+                  : saveState === 'saving'
+                    ? '1px solid var(--accent)'
+                    : '1px solid var(--border)',
+                background: saveState === 'saved'
+                  ? 'color-mix(in srgb, var(--success) 12%, transparent)'
+                  : saveState === 'saving'
+                    ? 'color-mix(in srgb, var(--accent) 12%, transparent)'
+                    : 'transparent',
+                borderRadius: '2px',
+                cursor: saveState === 'saving' ? 'not-allowed' : 'pointer',
+                transition: 'border-color 180ms ease, color 180ms ease, background-color 180ms ease',
+              }}
+              aria-label={
+                saveState === 'saved'
+                  ? 'Saved'
+                  : saveState === 'saving'
+                    ? 'Saving song...'
+                    : 'Save song'
+              }
+              title={
+                saveState === 'saved'
+                  ? 'Saved to library'
+                  : saveState === 'saving'
+                    ? 'Saving to library...'
+                    : 'Save to library'
+              }
+            >
+              {saveState === 'saving' ? (
+                <Loader2 size={15} className="animate-spin" />
+              ) : saveState === 'saved' ? (
+                <Check size={15} />
+              ) : (
+                <Save size={15} />
+              )}
+            </button>
+          )}
+
+          {/* Haptic settings */}
+          <button
+            onClick={onHapticSettingsClick}
+            className="p-2 flex items-center justify-center shrink-0"
+            style={{
+              color: hapticEnabled ? 'var(--success)' : 'var(--text-muted)',
+              border: '1px solid var(--border)',
+              borderRadius: '2px',
+              transition: 'border-color 180ms ease',
+            }}
+            aria-label="Haptic settings"
+            title="Haptic settings"
+          >
+            <Vibrate size={15} />
+          </button>
+        </div>
       </div>
+
+      {/* Swipe-up / Queue trigger pill */}
+      {onOpenQueue && (
+        <button
+          onClick={onOpenQueue}
+          className="flex items-center gap-1.5 px-3 py-1 text-[11px] rounded-full transition-all hover:bg-accent/15 mt-1 border select-none"
+          style={{
+            color: 'var(--text-muted)',
+            borderColor: 'var(--border)',
+            background: 'var(--bg-elevated)',
+            fontFamily: 'var(--font-geist-mono)',
+          }}
+          aria-label="Open saved songs"
+        >
+          <ChevronUp size={12} />
+          <span>Saved Songs {queueLength > 0 ? `(${queueLength})` : ''}</span>
+        </button>
+      )}
     </div>
   );
 }
