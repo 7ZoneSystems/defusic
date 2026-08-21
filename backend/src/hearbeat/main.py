@@ -1119,13 +1119,14 @@ async def save_song(
     )
 
     if existing:
+        # Dedup: song already in library, just update last_played — no Drive needed
         song_id = existing[0]["id"]
         await coh.db_query(
             "UPDATE user_songs SET last_played = NOW() WHERE id = $1",
             [song_id],
         )
     else:
-        # Require Drive connection for authenticated persistent library saves
+        # New song: require Drive connection for persistent library storage
         drive_token = await gdrive._get_valid_token(db_user)
         songs_folder_id = db_user.get("drive_songs_folder_id") if db_user else None
         if not drive_token or not songs_folder_id:
