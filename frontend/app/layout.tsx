@@ -4,6 +4,7 @@ import "./globals.css";
 import { ThemeProvider } from "@/lib/theme";
 import { AuthProvider } from "@/lib/auth";
 import { GoogleDriveProvider } from "@/lib/drive";
+import CookieConsent from "@/components/CookieConsent";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -62,7 +63,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="min-h-full flex flex-col">
         <ThemeProvider>
           <AuthProvider>
-            <GoogleDriveProvider>{children}</GoogleDriveProvider>
+            <GoogleDriveProvider>
+              {children}
+              <CookieConsent />
+            </GoogleDriveProvider>
           </AuthProvider>
         </ThemeProvider>
       </body>
