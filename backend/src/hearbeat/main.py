@@ -415,24 +415,12 @@ def get_loudness_profile(job_id: str) -> JSONResponse:
     return JSONResponse(content=result_dict)
 
 
-@app.post("/analysis/{job_id}/haptic")
-def generate_haptic_timeline(
-    job_id: str,
+def _generate_timeline_from_analysis(
+    result: AnalysisResult,
     config_update: HapticConfigUpdate | None = None,
-) -> JSONResponse:
-    """Generate a haptic timeline from an analysis result.
-
-    Accepts optional haptic configuration overrides.
-    Supports adaptive loudness scaling when enabled.
-    """
-    job = _jobs.get(job_id)
-    if not job:
-        raise HTTPException(404, f"Job not found: {job_id}")
-    if job.status != "completed" or not job.result:
-        raise HTTPException(400, "Analysis not completed yet")
-
-    result = job.result
-
+    job_id: str | None = None,
+) -> dict:
+    """Generate a haptic timeline dictionary from any AnalysisResult."""
     # Build config from preset + overrides
     if config_update and config_update.preset:
         haptic_config = get_preset(config_update.preset)
@@ -457,7 +445,7 @@ def generate_haptic_timeline(
     # Compute or retrieve loudness profile
     loudness_profile = None
     if adaptive_enabled:
-        loudness_profile = _get_or_compute_loudness(job_id, result)
+        loudness_profile = _get_or_compute_loudness(job_id or "", result)
 
     mapper = HapticMapper(config=haptic_config, preset_name=preset_name)
     timeline, adaptive_debug = mapper.map_events(
@@ -481,6 +469,26 @@ def generate_haptic_timeline(
             "short_term_p90": round(loudness_profile.short_term_p90, 1),
         }
 
+    return response
+
+
+@app.post("/analysis/{job_id}/haptic")
+def generate_haptic_timeline(
+    job_id: str,
+    config_update: HapticConfigUpdate | None = None,
+) -> JSONResponse:
+    """Generate a haptic timeline from an analysis result.
+
+    Accepts optional haptic configuration overrides.
+    Supports adaptive loudness scaling when enabled.
+    """
+    job = _jobs.get(job_id)
+    if not job:
+        raise HTTPException(404, f"Job not found: {job_id}")
+    if job.status != "completed" or not job.result:
+        raise HTTPException(400, "Analysis not completed yet")
+
+    response = _generate_timeline_from_analysis(job.result, config_update, job_id=job_id)
     return JSONResponse(content=response)
 
 
@@ -1612,6 +1620,75 @@ async def get_library_song_analysis(
         "analysis_drive_file_id": analysis_drive_file_id,
         "analysis": analysis_dict,
     })
+    if new_tokens:
+        resp.set_cookie(
+            "access_token", new_tokens["access_token"],
+            httponly=True, secure=True, samesite="lax", path="/", max_age=3600,
+        )
+    return resp
+
+
+@app.post("/library/songs/{song_id}/haptic")
+async def generate_library_song_haptic(
+    song_id: int,
+    config_update: HapticConfigUpdate | None = None,
+    access_token: str | None = Cookie(None),
+    refresh_token: str | None = Cookie(None),
+) -> JSONResponse:
+    """Generate haptic timeline for a saved library song using its stored analysis."""
+    user, new_tokens = await coh.get_auth_user(access_token, refresh_token)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    db_user = await coh.get_user_by_cohesivity_id(user["id"])
+    if not db_user:
+        raise HTTPException(404, "User not found")
+
+    rows = await coh.db_query(
+        """
+        SELECT s.id, s.original_name, s.file_hash, s.duration_seconds, s.analysis_mode,
+               s.drive_file_id, s.analysis_drive_file_id, a.analysis_data as legacy_analysis_data
+        FROM user_songs s
+        LEFT JOIN song_analysis a ON a.song_id = s.id
+        WHERE s.id = $1 AND s.user_id = $2
+        """,
+        [song_id, db_user["id"]],
+    )
+    if not rows:
+        raise HTTPException(404, "Song not found")
+
+    row = rows[0]
+    analysis_dict = None
+
+    # 1. Preferred: Load from Google Drive .hearbeat.json artifact
+    if row.get("analysis_drive_file_id"):
+        drive_token = await gdrive._get_valid_token(db_user)
+        songs_folder_id = db_user.get("drive_songs_folder_id")
+        if drive_token and songs_folder_id:
+            if await gdrive.verify_file_in_folder(drive_token, row["analysis_drive_file_id"], songs_folder_id):
+                try:
+                    analysis_dict = await gdrive.download_analysis_file(drive_token, row["analysis_drive_file_id"])
+                except Exception as e:
+                    logger.warning("Failed to download analysis artifact from Drive: %s", e)
+
+    # 2. Fallback: Legacy Postgres
+    if analysis_dict is None and row.get("legacy_analysis_data"):
+        raw_legacy = row["legacy_analysis_data"]
+        analysis_dict = raw_legacy if isinstance(raw_legacy, dict) else json.loads(raw_legacy)
+
+    if analysis_dict is None:
+        raise HTTPException(404, "No analysis data available for this song")
+
+    # Parse into AnalysisResult
+    try:
+        analysis_result = AnalysisResult.model_validate(analysis_dict)
+    except Exception as e:
+        logger.error("Failed to parse saved AnalysisResult for song %s: %s", song_id, e)
+        raise HTTPException(500, "Failed to load saved analysis structure")
+
+    response = _generate_timeline_from_analysis(analysis_result, config_update)
+
+    resp = JSONResponse(content=response)
     if new_tokens:
         resp.set_cookie(
             "access_token", new_tokens["access_token"],

@@ -71,6 +71,20 @@ export async function getHapticTimeline(
   return res.json();
 }
 
+export async function getLibrarySongHapticTimeline(
+  songId: number,
+  configUpdate?: Record<string, unknown>
+): Promise<HapticTimeline> {
+  const res = await fetch(`${API_BASE}/library/songs/${songId}/haptic`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: configUpdate ? { 'Content-Type': 'application/json' } : undefined,
+    body: configUpdate ? JSON.stringify(configUpdate) : undefined,
+  });
+  if (!res.ok) throw new Error('Failed to generate haptic timeline for saved song');
+  return res.json();
+}
+
 export async function getPresets(): Promise<{ presets: string[] }> {
   const res = await fetch(`${API_BASE}/presets`);
   if (!res.ok) throw new Error('Failed to fetch presets');

@@ -936,3 +936,74 @@ class TestDriveAnalysisArtifact:
             assert data["status"] == "already_saved"
             assert data["song_id"] == 56
             assert data["analysis_drive_file_id"] == "uploaded_artifact_id_2"
+
+    def test_library_song_haptic_generation_from_drive(self, client):
+        """POST /library/songs/{song_id}/haptic generates haptic timeline without calling /analyze."""
+        user = _authenticated_user()
+        db_user = {
+            "id": 42,
+            "cohesivity_user_id": 1,
+            "drive_songs_folder_id": "songs_abc",
+            "drive_access_token": "encrypted_tok",
+        }
+        mock_song = {
+            "id": 101,
+            "original_name": "saved_track.mp3",
+            "file_hash": "hash_101",
+            "duration_seconds": 180.0,
+            "analysis_mode": "music",
+            "drive_file_id": "audio_101",
+            "analysis_drive_file_id": "analysis_101",
+            "legacy_analysis_data": None,
+        }
+        mock_analysis_dict = {
+            "mode": "music",
+            "source": {
+                "filename": "saved_track.mp3",
+                "sha256": "hash_101",
+                "duration_seconds": 180.0,
+                "sample_rate": 44100,
+                "file_size_bytes": 1000,
+            },
+            "rhythm": {"bpm": 120.0, "confidence": 0.9, "meter": "4/4"},
+            "events": [
+                {"time": 0.5, "type": "beat", "strength": 0.8, "confidence": 0.95},
+                {"time": 1.0, "type": "kick", "strength": 0.85, "confidence": 0.9},
+            ],
+            "beats": [{"time": 0.5, "confidence": 0.95}],
+            "downbeats": [],
+            "segments": [],
+            "drum_events_raw": [],
+            "metadata": {},
+            "warnings": [],
+        }
+
+        with (
+            patch("hearbeat.main.coh.get_auth_user", new_callable=AsyncMock, return_value=(user, None)),
+            patch("hearbeat.main.coh.get_user_by_cohesivity_id", new_callable=AsyncMock, return_value=db_user),
+            patch("hearbeat.main.coh.db_query", new_callable=AsyncMock, return_value=[mock_song]),
+            patch("hearbeat.main.gdrive._get_valid_token", new_callable=AsyncMock, return_value="drive_tok"),
+            patch("hearbeat.main.gdrive.verify_file_in_folder", new_callable=AsyncMock, return_value=True),
+            patch("hearbeat.main.gdrive.download_analysis_file", new_callable=AsyncMock, return_value=mock_analysis_dict),
+            patch("hearbeat.pipeline.analyze_file") as mock_pipeline,
+        ):
+            resp = client.post(
+                "/library/songs/101/haptic",
+                json={"preset": "drummer_default", "master_intensity": 0.8},
+                cookies={"access_token": "valid", "refresh_token": "valid"},
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert "events" in data
+            assert len(data["events"]) > 0
+            assert data["duration_seconds"] == 180.0
+            # Ensure analyze_file was NEVER called
+            mock_pipeline.assert_not_called()
+
+    def test_library_song_haptic_requires_auth(self, client):
+        """POST /library/songs/{song_id}/haptic requires authenticated session."""
+        resp = client.post(
+            "/library/songs/101/haptic",
+            json={"preset": "drummer_default"},
+        )
+        assert resp.status_code == 401

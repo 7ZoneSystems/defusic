@@ -16,7 +16,7 @@ import DrumPatternView from '@/components/DrumPatternView';
 import AnalysisProgress from '@/components/AnalysisProgress';
 import MusicExperience from '@/components/MusicExperience';
 import HapticPanel from '@/components/HapticPanel';
-import { analyzeFile, checkHealth, getHapticTimeline, getJsonDownloadUrl, getWaveformData, getLibrarySongAnalysis, getDriveDownloadUrl, downloadDriveAudioBlob, saveSongAnalysis } from '@/lib/api';
+import { analyzeFile, checkHealth, getHapticTimeline, getLibrarySongHapticTimeline, getJsonDownloadUrl, getWaveformData, getLibrarySongAnalysis, getDriveDownloadUrl, downloadDriveAudioBlob, saveSongAnalysis, fetchLibrarySongs } from '@/lib/api';
 import { AnalysisResult, AnalysisMode, AppState, DiagnosticLayer, WaveformData } from '@/lib/types';
 import { DRUM_LAYERS, MUSIC_LAYERS } from '@/lib/types';
 import { HapticConfig, HapticEvent, HapticTimeline, DEFAULT_HAPTIC_CONFIG } from '@/lib/haptic-types';
@@ -53,6 +53,7 @@ function HomeContent() {
   const [state, setState] = useState<AppState>('idle');
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [jobId, setJobId] = useState<string>('');
+  const [currentSongId, setCurrentSongId] = useState<number | null>(null);
   const [error, setError] = useState<string>('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedMeta, setSelectedMeta] = useState<SelectedFileMeta | null>(null);
@@ -169,7 +170,9 @@ function HomeContent() {
         const analysisResult = data.analysis as unknown as AnalysisResult;
         setResult(analysisResult);
         setMode(data.analysis_mode as AnalysisMode);
-        setJobId(`library-${songId}`);
+        setJobId('');
+        setCurrentSongId(songId);
+        setSaveState('saved');
 
         // Set audio source from Drive via authenticated blob download
         if (data.drive_file_id) {
@@ -189,8 +192,8 @@ function HomeContent() {
           }
         }
 
-        // Load haptic timeline from analysis
-        const hapticData = await getHapticTimeline(`library-${songId}`).catch(() => null);
+        // Load haptic timeline from saved analysis directly
+        const hapticData = await getLibrarySongHapticTimeline(songId).catch(() => null);
         if (active && hapticData) {
           setHapticTimeline(hapticData);
         }
@@ -240,10 +243,10 @@ function HomeContent() {
 
   // Reload haptic timeline when config changes
   useEffect(() => {
-    if (state !== 'complete' || !jobId) return;
+    if (state !== 'complete' || (!jobId && !currentSongId)) return;
 
     const timer = setTimeout(() => {
-      getHapticTimeline(jobId, {
+      const configPayload = {
         preset: 'custom',
         master_intensity: hapticConfig.master_intensity,
         beat_intensity: hapticConfig.beat.intensity,
@@ -261,13 +264,17 @@ function HomeContent() {
         anticipation_enabled: hapticConfig.anticipation_enabled,
         adaptive_enabled: hapticConfig.adaptive_enabled,
         adaptive_gain_strength: hapticConfig.adaptive_gain_strength,
-      })
-        .then(setHapticTimeline)
-        .catch(() => {});
+      };
+
+      const promise = currentSongId
+        ? getLibrarySongHapticTimeline(currentSongId, configPayload)
+        : getHapticTimeline(jobId, configPayload);
+
+      promise.then(setHapticTimeline).catch(() => {});
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [hapticConfig, state, jobId]);
+  }, [hapticConfig, state, jobId, currentSongId]);
 
   const handleFileSelected = useCallback(async (file: File) => {
     // Persist to IndexedDB in the background — do NOT await, it may hang
@@ -306,8 +313,27 @@ function HomeContent() {
 
       if (job.status === 'completed' && job.result) {
         setResult(job.result);
+        setCurrentSongId(null);
         setState('complete');
         setEngineStatus('online');
+
+        // Check if user already has this song in their library
+        if (user) {
+          fetchLibrarySongs().then((songs) => {
+            const fileHash = job.result?.source?.sha256;
+            const match = songs.find((s) => (fileHash && s.file_hash === fileHash) || (selectedFile && s.filename.toLowerCase() === selectedFile.name.toLowerCase()));
+            if (match) {
+              setSaveState('saved');
+              setCurrentSongId(match.id);
+            } else {
+              setSaveState('idle');
+            }
+          }).catch(() => {
+            setSaveState('idle');
+          });
+        } else {
+          setSaveState('idle');
+        }
       } else if (job.status === 'failed') {
         setError(job.error || 'Analysis failed');
         setState('error');
@@ -318,12 +344,13 @@ function HomeContent() {
       setState('error');
       setEngineStatus('online');
     }
-  }, [selectedFile, mode]);
+  }, [selectedFile, mode, user]);
 
   const handleReset = useCallback(() => {
     setState('idle');
     setResult(null);
     setJobId('');
+    setCurrentSongId(null);
     setError('');
     setSelectedFile(null);
     setSelectedMeta(null);
@@ -353,13 +380,16 @@ function HomeContent() {
     }
     setSaveState('saving');
     try {
-      await saveSongAnalysis(
+      const savedRes = await saveSongAnalysis(
         fileToSave,
         JSON.stringify(result),
         mode,
         fileToSave.name,
       );
       setSaveState('saved');
+      if (savedRes?.song_id) {
+        setCurrentSongId(savedRes.song_id);
+      }
     } catch (err) {
       console.error('Save failed:', err);
       setSaveState('idle');
@@ -528,9 +558,9 @@ function HomeContent() {
         )}
 
         {/* Analysis Workspace — Music mode */}
-        {state === 'complete' && result && !isDrumming && jobId && (
+        {state === 'complete' && result && !isDrumming && (jobId || libraryAudioSrc || currentSongId) && (
           <MusicExperience
-            jobId={jobId}
+            jobId={jobId || (currentSongId ? `saved-${currentSongId}` : '')}
             duration={result.source.duration_seconds}
             currentTime={currentTime}
             onTimeUpdate={setCurrentTime}

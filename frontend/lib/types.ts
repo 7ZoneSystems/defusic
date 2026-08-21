@@ -8,6 +8,8 @@ export interface SourceInfo {
   filename: string;
   duration_seconds: number;
   sample_rate: number;
+  sha256?: string;
+  file_size_bytes?: number;
 }
 
 export interface RhythmInfo {

@@ -232,9 +232,10 @@ export default function MusicAudioPlayer({
             style={{
               right: '56px',
               color: saveState === 'saved' ? 'var(--success)' : 'var(--text-muted)',
-              border: '1px solid var(--border)',
+              border: saveState === 'saved' ? '1px solid var(--success)' : '1px solid var(--border)',
+              background: saveState === 'saved' ? 'color-mix(in srgb, var(--success) 12%, transparent)' : 'transparent',
               borderRadius: '2px',
-              transition: 'border-color 180ms ease, color 180ms ease',
+              transition: 'border-color 180ms ease, color 180ms ease, background-color 180ms ease',
             }}
             aria-label={saveState === 'saved' ? 'Saved' : 'Save song'}
             title={saveState === 'saved' ? 'Saved to library' : 'Save to library'}
