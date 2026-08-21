@@ -19,6 +19,7 @@ interface DriveContextType {
   connected: boolean;
   hasSongs: boolean;
   loading: boolean;
+  initialized: boolean;
   folderId: string | null;
   songsFolderId: string | null;
   connectionFileId: string | null;
@@ -36,16 +37,36 @@ const REDIRECT_URI = typeof window !== "undefined"
   : "";
 
 export function GoogleDriveProvider({ children }: { children: React.ReactNode }) {
-  const { loading: authLoading } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [connected, setConnected] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [initialized, setInitialized] = useState(false);
   const [folderId, setFolderId] = useState<string | null>(null);
   const [songsFolderId, setSongsFolderId] = useState<string | null>(null);
   const [hasSongs, setHasSongs] = useState(false);
   const [connectionFileId, setConnectionFileId] = useState<string | null>(null);
   const fetchVersionRef = useRef(0);
 
+  // Reset state when user logs out
+  useEffect(() => {
+    if (!authLoading && !user) {
+      Promise.resolve().then(() => {
+        setConnected(false);
+        setHasSongs(false);
+        setFolderId(null);
+        setSongsFolderId(null);
+        setConnectionFileId(null);
+        setLoading(false);
+        setInitialized(false);
+      });
+    }
+  }, [authLoading, user]);
+
   const refresh = useCallback(async () => {
+    // Only fetch Drive status if user is authenticated and auth has resolved
+    if (authLoading || !user) {
+      return;
+    }
     const version = ++fetchVersionRef.current;
     try {
       setLoading(true);
@@ -56,20 +77,16 @@ export function GoogleDriveProvider({ children }: { children: React.ReactNode })
       setFolderId(status.folder_id);
       setSongsFolderId(status.songs_folder_id);
       setConnectionFileId(status.connection_file_id);
+      setInitialized(true);
     } catch {
       if (version !== fetchVersionRef.current) return;
       setConnected(false);
       setHasSongs(false);
+      setInitialized(true);
     } finally {
       if (version === fetchVersionRef.current) setLoading(false);
     }
-  }, []);
-
-  useEffect(() => {
-    if (authLoading) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    refresh();
-  }, [authLoading, refresh]);
+  }, [authLoading, user]);
 
   const connect = useCallback(() => {
     const scope = "https://www.googleapis.com/auth/drive.file";
@@ -102,11 +119,24 @@ export function GoogleDriveProvider({ children }: { children: React.ReactNode })
     setFolderId(null);
     setSongsFolderId(null);
     setConnectionFileId(null);
+    setInitialized(true);
   }, []);
 
   return (
     <DriveContext.Provider
-      value={{ connected, hasSongs, loading, folderId, songsFolderId, connectionFileId, connect, disconnect, exchangeCode, refresh }}
+      value={{
+        connected,
+        hasSongs,
+        loading,
+        initialized,
+        folderId,
+        songsFolderId,
+        connectionFileId,
+        connect,
+        disconnect,
+        exchangeCode,
+        refresh,
+      }}
     >
       {children}
     </DriveContext.Provider>

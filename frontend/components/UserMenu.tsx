@@ -6,8 +6,23 @@ import { useGoogleDrive } from "@/lib/drive";
 
 export default function UserMenu() {
   const { user, loading, login, logout, keepSignedIn, setKeepSignedIn } = useAuth();
-  const { connected: driveConnected, disconnect: driveDisconnect, loading: driveLoading } = useGoogleDrive();
+  const {
+    connected: driveConnected,
+    disconnect: driveDisconnect,
+    loading: driveLoading,
+    initialized: driveInitialized,
+    refresh: driveRefresh,
+  } = useGoogleDrive();
   const [open, setOpen] = useState(false);
+
+  // Lazily check Drive status only when user opens account menu
+  const handleToggle = () => {
+    const nextOpen = !open;
+    setOpen(nextOpen);
+    if (nextOpen && user && !driveInitialized && !driveLoading) {
+      driveRefresh();
+    }
+  };
 
   if (loading) return null;
 
@@ -30,7 +45,7 @@ export default function UserMenu() {
   return (
     <div className="relative">
       <button
-        onClick={() => setOpen(!open)}
+        onClick={handleToggle}
         className="flex items-center gap-1 text-xs px-1.5 py-1 rounded-sm transition-opacity hover:opacity-80"
         style={{
           color: "var(--text-primary)",
@@ -72,18 +87,24 @@ export default function UserMenu() {
             >
               Library
             </a>
-            {!driveLoading && (
-              <div
-                className="px-3 py-2 text-xs"
-                style={{
-                  color: driveConnected ? "var(--success)" : "var(--text-muted)",
-                  borderBottom: "1px solid var(--border)",
-                }}
-              >
-                {driveConnected ? "Drive connected" : "Drive not connected"}
-              </div>
-            )}
-            {driveConnected && (
+            <div
+              className="px-3 py-2 text-xs"
+              style={{
+                color: (!driveInitialized || driveLoading)
+                  ? "var(--text-muted)"
+                  : driveConnected
+                    ? "var(--success)"
+                    : "var(--text-muted)",
+                borderBottom: "1px solid var(--border)",
+              }}
+            >
+              {!driveInitialized || driveLoading
+                ? "Checking Drive..."
+                : driveConnected
+                  ? "Drive connected"
+                  : "Drive not connected"}
+            </div>
+            {driveInitialized && !driveLoading && driveConnected && (
               <button
                 onClick={() => {
                   setOpen(false);

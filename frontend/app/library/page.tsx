@@ -46,13 +46,27 @@ type MergedSong = {
 
 function LibraryContent() {
   const { user, loading: authLoading, login } = useAuth();
-  const { connected: driveConnected, loading: driveLoading } = useGoogleDrive();
+  const {
+    connected: driveConnected,
+    loading: driveLoading,
+    initialized: driveInitialized,
+    refresh: refreshDrive,
+  } = useGoogleDrive();
 
   const [dbSongs, setDbSongs] = useState<LibrarySong[]>([]);
   const [driveSongs, setDriveSongs] = useState<DriveSongFile[]>([]);
+  const [songsLoading, setSongsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [processingFileId, setProcessingFileId] = useState<string | null>(null);
   const [reprocessingId, setReprocessingId] = useState<number | null>(null);
+
+  // Lazy initialize Drive status when authenticated user opens Library
+  useEffect(() => {
+    if (authLoading || !user) return;
+    if (!driveInitialized && !driveLoading) {
+      refreshDrive();
+    }
+  }, [authLoading, user, driveInitialized, driveLoading, refreshDrive]);
 
   // Fetch DB songs
   const fetchDbSongs = useCallback(async () => {
@@ -71,21 +85,30 @@ function LibraryContent() {
       const data = await listDriveSongs();
       setDriveSongs(data);
     } catch (e) {
-      // Drive listing may fail if not connected or token expired
       console.warn("Failed to list Drive songs:", e);
     }
   }, [driveConnected]);
 
-  // Fetch songs when auth and drive are ready
+  // Fetch library songs only AFTER authentication and Drive state are resolved
   useEffect(() => {
-    if (authLoading || driveLoading || !user) return;
-    Promise.resolve().then(() => {
-      fetchDbSongs();
-      fetchDriveSongs();
-    });
-  }, [authLoading, driveLoading, user, fetchDbSongs, fetchDriveSongs]);
+    if (authLoading || !user || !driveInitialized || driveLoading) return;
 
-  const loading = authLoading || driveLoading;
+    let active = true;
+    Promise.resolve().then(() => {
+      if (!active) return;
+      setSongsLoading(true);
+      Promise.all([
+        fetchDbSongs(),
+        driveConnected ? fetchDriveSongs() : Promise.resolve(),
+      ]).finally(() => {
+        if (active) setSongsLoading(false);
+      });
+    });
+
+    return () => { active = false; };
+  }, [authLoading, user, driveInitialized, driveLoading, driveConnected, fetchDbSongs, fetchDriveSongs]);
+
+  const loading = authLoading || driveLoading || songsLoading;
 
   // Merge DB songs with Drive files by filename matching
   const mergedSongs = useMemo(() => {
@@ -224,15 +247,19 @@ function LibraryContent() {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  // --- Not authenticated ---
+  // --- Phase 1: Checking authentication ---
   if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p style={{ color: "var(--text-muted)" }}>Loading...</p>
+      <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--bg-primary)" }}>
+        <div className="flex items-center gap-2 text-sm" style={{ color: "var(--text-muted)", fontFamily: "var(--font-geist-mono)" }}>
+          <Loader2 size={16} className="animate-spin" />
+          <span>Checking account...</span>
+        </div>
       </div>
     );
   }
 
+  // --- Phase 2: Unauthenticated ---
   if (!user) {
     return (
       <div className="min-h-screen" style={{ background: "var(--bg-primary)" }}>
@@ -262,8 +289,27 @@ function LibraryContent() {
     );
   }
 
-  // --- Drive not connected ---
-  if (!driveLoading && !driveConnected) {
+  // --- Phase 3: Checking Google Drive status ---
+  if (!driveInitialized || driveLoading) {
+    return (
+      <div className="min-h-screen" style={{ background: "var(--bg-primary)" }}>
+        <Header backHref="/" backLabel="Main" />
+        <div
+          className="flex flex-col items-center justify-center px-6 gap-3"
+          style={{ minHeight: "calc(100vh - 60px)" }}
+        >
+          <div className="flex items-center gap-2 text-sm" style={{ color: "var(--text-muted)", fontFamily: "var(--font-geist-mono)" }}>
+            <Loader2 size={16} className="animate-spin" />
+            <span>Checking Google Drive...</span>
+          </div>
+        </div>
+        <Footer />
+      </div>
+    );
+  }
+
+  // --- Phase 4: Drive not connected ---
+  if (!driveConnected) {
     return (
       <div className="min-h-screen" style={{ background: "var(--bg-primary)" }}>
         <Header backHref="/" backLabel="Main" />
@@ -278,8 +324,8 @@ function LibraryContent() {
     );
   }
 
-  // --- Drive connected + empty ---
-  if (!driveLoading && driveConnected && !loading && mergedSongs.length === 0) {
+  // --- Phase 5: Drive connected + empty songs ---
+  if (driveConnected && !songsLoading && mergedSongs.length === 0) {
     return (
       <div className="min-h-screen" style={{ background: "var(--bg-primary)" }}>
         <Header backHref="/" backLabel="Main" />
@@ -300,7 +346,7 @@ function LibraryContent() {
     );
   }
 
-  // --- Drive connected / loading ---
+  // --- Phase 6: Drive connected with songs (or loading songs) ---
   return (
     <div className="min-h-screen" style={{ background: "var(--bg-primary)" }}>
       <Header backHref="/" backLabel="Main" />

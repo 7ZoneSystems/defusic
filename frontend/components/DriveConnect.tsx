@@ -12,7 +12,7 @@ interface DriveConnectProps {
 }
 
 export default function DriveConnect({ variant = "compact" }: DriveConnectProps) {
-  const { connected, loading, connect, exchangeCode } = useGoogleDrive();
+  const { connected, loading, initialized, connect, exchangeCode } = useGoogleDrive();
   const { user, loading: authLoading } = useAuth();
   const { resolved: theme } = useTheme();
   const searchParams = useSearchParams();
@@ -25,7 +25,7 @@ export default function DriveConnect({ variant = "compact" }: DriveConnectProps)
     }
   }, [searchParams, exchangeCode, authLoading, user]);
 
-  if (loading) {
+  if (loading || (!initialized && user && !authLoading)) {
     return (
       <div className="flex items-center gap-2 text-sm opacity-50">
         <HardDrive size={16} />
