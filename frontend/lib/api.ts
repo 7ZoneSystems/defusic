@@ -260,6 +260,19 @@ export function getDriveDownloadUrl(fileId: string): string {
   return `${API_BASE}/drive/download/${fileId}`;
 }
 
+export async function downloadDriveAudioBlob(fileId: string): Promise<Blob> {
+  const res = await fetch(`${API_BASE}/drive/download/${encodeURIComponent(fileId)}`, {
+    credentials: "include",
+  });
+  if (res.status === 401) {
+    throw new Error("Authentication required to play this track from Drive");
+  }
+  if (!res.ok) {
+    throw new Error(`Failed to download audio from Drive (${res.status})`);
+  }
+  return res.blob();
+}
+
 export async function deleteDriveFile(fileId: string): Promise<{ status: string }> {
   const res = await fetch(`${API_BASE}/drive/file/${fileId}`, {
     method: "DELETE",

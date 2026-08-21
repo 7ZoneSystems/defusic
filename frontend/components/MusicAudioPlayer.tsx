@@ -42,7 +42,6 @@ export default function MusicAudioPlayer({
   onSave,
 }: MusicAudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
-  const initializedRef = useRef(false);
   const [playing, setPlaying] = useState(false);
   const [pulse, setPulse] = useState(false);
   const onTimeUpdateRef = useRef(onTimeUpdate);
@@ -57,10 +56,9 @@ export default function MusicAudioPlayer({
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio || !audioSrc) return;
-    if (!initializedRef.current) {
+    if (audio.src !== audioSrc && !audio.src.endsWith(audioSrc)) {
       audio.src = audioSrc;
       audio.volume = volume;
-      initializedRef.current = true;
     }
   }, [audioSrc, volume]);
 

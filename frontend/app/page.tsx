@@ -16,7 +16,7 @@ import DrumPatternView from '@/components/DrumPatternView';
 import AnalysisProgress from '@/components/AnalysisProgress';
 import MusicExperience from '@/components/MusicExperience';
 import HapticPanel from '@/components/HapticPanel';
-import { analyzeFile, checkHealth, getHapticTimeline, getJsonDownloadUrl, getWaveformData, getLibrarySongAnalysis, getDriveDownloadUrl, saveSongAnalysis } from '@/lib/api';
+import { analyzeFile, checkHealth, getHapticTimeline, getJsonDownloadUrl, getWaveformData, getLibrarySongAnalysis, getDriveDownloadUrl, downloadDriveAudioBlob, saveSongAnalysis } from '@/lib/api';
 import { AnalysisResult, AnalysisMode, AppState, DiagnosticLayer, WaveformData } from '@/lib/types';
 import { DRUM_LAYERS, MUSIC_LAYERS } from '@/lib/types';
 import { HapticConfig, HapticEvent, HapticTimeline, DEFAULT_HAPTIC_CONFIG } from '@/lib/haptic-types';
@@ -77,6 +77,7 @@ function HomeContent() {
   const [hapticController, setHapticController] = useState<HapticController | null>(null);
   const [realHardware, setRealHardware] = useState(false);
   const [libraryAudioSrc, setLibraryAudioSrc] = useState<string | null>(null);
+  const libraryAudioBlobUrlRef = useRef<string | null>(null);
   const hapticInitRef = useRef(false);
   const { user } = useAuth();
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
@@ -170,9 +171,22 @@ function HomeContent() {
         setMode(data.analysis_mode as AnalysisMode);
         setJobId(`library-${songId}`);
 
-        // Set audio source from Drive
+        // Set audio source from Drive via authenticated blob download
         if (data.drive_file_id) {
-          setLibraryAudioSrc(getDriveDownloadUrl(data.drive_file_id));
+          try {
+            const blob = await downloadDriveAudioBlob(data.drive_file_id);
+            if (!active) return;
+            const blobUrl = URL.createObjectURL(blob);
+            if (libraryAudioBlobUrlRef.current && libraryAudioBlobUrlRef.current !== blobUrl) {
+              URL.revokeObjectURL(libraryAudioBlobUrlRef.current);
+            }
+            libraryAudioBlobUrlRef.current = blobUrl;
+            setLibraryAudioSrc(blobUrl);
+          } catch (downloadErr) {
+            console.warn('Authenticated Drive blob download failed, falling back to direct URL:', downloadErr);
+            if (!active) return;
+            setLibraryAudioSrc(getDriveDownloadUrl(data.drive_file_id));
+          }
         }
 
         // Load haptic timeline from analysis
@@ -317,6 +331,10 @@ function HomeContent() {
     setOriginalWaveform(null);
     setDiagnosticWaveform(null);
     setHapticTimeline(null);
+    if (libraryAudioBlobUrlRef.current) {
+      URL.revokeObjectURL(libraryAudioBlobUrlRef.current);
+      libraryAudioBlobUrlRef.current = null;
+    }
     setLibraryAudioSrc(null);
     setSaveState('idle');
     hapticController?.stop();
@@ -650,6 +668,7 @@ function HomeContent() {
                   onOriginalVolumeChange={setOriginalVolume}
                   onDiagnosticVolumeChange={setDiagnosticVolume}
                   hapticController={hapticController}
+                  audioSrc={libraryAudioSrc || undefined}
                 />
               )}
 

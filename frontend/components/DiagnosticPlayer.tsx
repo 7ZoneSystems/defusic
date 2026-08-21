@@ -19,6 +19,7 @@ interface DiagnosticPlayerProps {
   onOriginalVolumeChange: (v: number) => void;
   onDiagnosticVolumeChange: (v: number) => void;
   hapticController?: HapticController | null;
+  audioSrc?: string;
 }
 
 export default function DiagnosticPlayer({
@@ -33,6 +34,7 @@ export default function DiagnosticPlayer({
   onOriginalVolumeChange,
   onDiagnosticVolumeChange,
   hapticController,
+  audioSrc,
 }: DiagnosticPlayerProps) {
   const originalRef = useRef<HTMLAudioElement>(null);
   const diagnosticRef = useRef<HTMLAudioElement>(null);
@@ -40,7 +42,7 @@ export default function DiagnosticPlayer({
 
   const activeLayers = layers.filter((l) => l.enabled).map((l) => l.id);
   const diagnosticUrl = getDiagnosticAudioUrl(jobId, activeLayers);
-  const originalUrl = getOriginalAudioUrl(jobId);
+  const originalUrl = audioSrc || getOriginalAudioUrl(jobId);
 
   // Sync volumes
   useEffect(() => {
