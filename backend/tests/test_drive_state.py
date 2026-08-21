@@ -127,6 +127,31 @@ class TestDriveConnectedWithSongs:
 
 
 class TestDriveDisconnected:
+    def test_status_returns_false_for_new_user_not_in_db(self, client):
+        """A freshly logged in user not yet in local DB gets auto-upserted and returns 200 connected=false."""
+        user = _authenticated_user()
+        upserted_user = {
+            "id": 99,
+            "cohesivity_user_id": 1,
+            "drive_songs_folder_id": None,
+            "drive_folder_id": None,
+            "drive_access_token": None,
+            "drive_connection_file_id": None,
+        }
+        with (
+            patch("hearbeat.main.coh.get_auth_user", new_callable=AsyncMock, return_value=(user, None)),
+            patch("hearbeat.main.coh.get_user_by_cohesivity_id", new_callable=AsyncMock, return_value=None),
+            patch("hearbeat.main.coh.upsert_user", new_callable=AsyncMock, return_value=upserted_user),
+        ):
+            resp = client.get(
+                "/drive/status",
+                cookies={"access_token": "valid", "refresh_token": "valid"},
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["connected"] is False
+            assert data["has_songs"] is False
+
     def test_status_returns_false(self, client):
         user = _authenticated_user()
         db_user = {

@@ -706,7 +706,7 @@ async def drive_status(
 
     db_user = await coh.get_user_by_cohesivity_id(user["id"])
     if not db_user:
-        raise HTTPException(401, "User not found")
+        db_user = await coh.upsert_user(user["id"], user["email"], user.get("name"), user.get("picture"))
 
     has_token = bool(db_user.get("drive_access_token"))
     has_marker = bool(db_user.get("drive_connection_file_id"))
@@ -754,7 +754,7 @@ async def drive_exchange(
 
     db_user = await coh.get_user_by_cohesivity_id(user["id"])
     if not db_user:
-        raise HTTPException(401, "User not found")
+        db_user = await coh.upsert_user(user["id"], user["email"], user.get("name"), user.get("picture"))
 
     # Exchange code for tokens
     try:
@@ -818,7 +818,7 @@ async def drive_disconnect(
 
     db_user = await coh.get_user_by_cohesivity_id(user["id"])
     if not db_user:
-        raise HTTPException(401, "User not found")
+        db_user = await coh.upsert_user(user["id"], user["email"], user.get("name"), user.get("picture"))
 
     await gdrive.disconnect_drive(db_user["id"])
     return JSONResponse({"status": "disconnected"})
@@ -837,7 +837,7 @@ async def drive_upload(
 
     db_user = await coh.get_user_by_cohesivity_id(user["id"])
     if not db_user:
-        raise HTTPException(401, "User not found")
+        db_user = await coh.upsert_user(user["id"], user["email"], user.get("name"), user.get("picture"))
 
     drive_token = await gdrive._get_valid_token(db_user)
     if not drive_token:
@@ -874,7 +874,7 @@ async def drive_download(
 
     db_user = await coh.get_user_by_cohesivity_id(user["id"])
     if not db_user:
-        raise HTTPException(401, "User not found")
+        db_user = await coh.upsert_user(user["id"], user["email"], user.get("name"), user.get("picture"))
 
     drive_token = await gdrive._get_valid_token(db_user)
     if not drive_token:
@@ -917,7 +917,7 @@ async def drive_delete_file(
 
     db_user = await coh.get_user_by_cohesivity_id(user["id"])
     if not db_user:
-        raise HTTPException(401, "User not found")
+        db_user = await coh.upsert_user(user["id"], user["email"], user.get("name"), user.get("picture"))
 
     drive_token = await gdrive._get_valid_token(db_user)
     if not drive_token:
@@ -1004,7 +1004,7 @@ async def list_drive_songs(
 
     db_user = await coh.get_user_by_cohesivity_id(user["id"])
     if not db_user:
-        raise HTTPException(401, "User not found")
+        db_user = await coh.upsert_user(user["id"], user["email"], user.get("name"), user.get("picture"))
 
     drive_token = await gdrive._get_valid_token(db_user)
     if not drive_token:
@@ -1057,7 +1057,7 @@ async def analyze_drive_song(
 
     db_user = await coh.get_user_by_cohesivity_id(user["id"])
     if not db_user:
-        raise HTTPException(401, "User not found")
+        db_user = await coh.upsert_user(user["id"], user["email"], user.get("name"), user.get("picture"))
 
     drive_token = await gdrive._get_valid_token(db_user)
     if not drive_token:
