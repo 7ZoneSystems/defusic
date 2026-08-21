@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import tempfile
 import uuid
@@ -586,21 +587,28 @@ async def auth_callback(
     return_to: str = Query("/"),
     error: str | None = Query(None),
 ) -> RedirectResponse:
-    """Handle OAuth callback. Sets httpOnly cookies and redirects."""
-    if error or not access_token:
-        return RedirectResponse(url=f"/?auth_error={error or 'no_token'}")
+    """Handle OAuth callback from Cohesivity.
 
-    res = RedirectResponse(url=return_to)
-    res.set_cookie(
-        "access_token", access_token,
-        httponly=True, secure=True, samesite="lax", path="/", max_age=3600,
+    Redirects to the frontend callback page which sets cookies client-side.
+    Uses FRONTEND_URL env var for absolute redirect when behind a reverse proxy.
+    """
+    frontend_url = os.getenv("FRONTEND_URL", "")
+
+    if error or not access_token:
+        error_path = f"/?auth_error={error or 'no_token'}"
+        target = f"{frontend_url}{error_path}" if frontend_url else error_path
+        return RedirectResponse(url=target)
+
+    # Build absolute URL to frontend callback page
+    callback_path = (
+        f"/auth/callback"
+        f"?access_token={access_token}"
+        f"&refresh_token={refresh_token or ''}"
+        f"&return_to={return_to}"
     )
-    if refresh_token:
-        res.set_cookie(
-            "refresh_token", refresh_token,
-            httponly=True, secure=True, samesite="lax", path="/", max_age=30 * 86400,
-        )
-    return res
+    target = f"{frontend_url}{callback_path}" if frontend_url else callback_path
+
+    return RedirectResponse(url=target)
 
 
 @app.get("/auth/me")
