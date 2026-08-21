@@ -215,11 +215,11 @@ export default function MusicAudioPlayer({
         </span>
       </div>
 
-      {/* Controls row: Volume | Previous - Play - Next | Save | Haptics */}
-      <div className="flex items-center justify-between w-full px-0.5 relative">
-        {/* Left: Volume slider */}
-        <div className="flex items-center gap-1 shrink-0">
-          <Volume2 size={13} style={{ color: 'var(--text-muted)' }} />
+      {/* Controls row: Volume (left) | Previous - Play - Next (true center) | Save - Haptics (right) */}
+      <div className="grid grid-cols-[1fr_auto_1fr] items-center w-full px-0.5">
+        {/* Left Column: Volume slider (anchored to start) */}
+        <div className="flex items-center justify-start gap-1.5 min-w-0 pr-1">
+          <Volume2 size={13} className="shrink-0" style={{ color: 'var(--text-muted)' }} />
           <input
             type="range"
             min={0}
@@ -227,20 +227,20 @@ export default function MusicAudioPlayer({
             step={0.01}
             value={volume}
             onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
-            className="w-12 sm:w-16 md:w-20 cursor-pointer"
+            className="w-full max-w-[65px] sm:max-w-[85px] md:max-w-[100px] min-w-[32px] cursor-pointer"
             style={{ height: 3, accentColor: 'var(--gold)' }}
             aria-label="Song volume"
           />
         </div>
 
-        {/* Center: Previous / Play-Pause / Next */}
-        <div className="flex items-center gap-0.5 sm:gap-1.5 shrink-0">
+        {/* Center Column: Geometrically anchored to TRUE CENTER */}
+        <div className="flex items-center justify-center gap-1 sm:gap-2 shrink-0">
           {/* Previous Button */}
           {onPrevious && (
             <button
               onClick={onPrevious}
               disabled={!hasPrevious}
-              className="p-1.5 sm:p-2 rounded-full transition-all flex items-center justify-center hover:bg-accent/10 disabled:opacity-25 disabled:cursor-not-allowed"
+              className="p-1.5 sm:p-2 rounded-full transition-all flex items-center justify-center hover:bg-accent/10 disabled:opacity-20 disabled:cursor-not-allowed"
               style={{
                 color: hasPrevious ? 'var(--text-primary)' : 'var(--text-muted)',
               }}
@@ -285,7 +285,7 @@ export default function MusicAudioPlayer({
             <button
               onClick={onNext}
               disabled={!hasNext}
-              className="p-1.5 sm:p-2 rounded-full transition-all flex items-center justify-center hover:bg-accent/10 disabled:opacity-25 disabled:cursor-not-allowed"
+              className="p-1.5 sm:p-2 rounded-full transition-all flex items-center justify-center hover:bg-accent/10 disabled:opacity-20 disabled:cursor-not-allowed"
               style={{
                 color: hasNext ? 'var(--text-primary)' : 'var(--text-muted)',
               }}
@@ -297,8 +297,8 @@ export default function MusicAudioPlayer({
           )}
         </div>
 
-        {/* Right: Save & Haptic buttons */}
-        <div className="flex items-center gap-1.5 shrink-0">
+        {/* Right Column: Save & Haptic buttons (anchored to end) */}
+        <div className="flex items-center justify-end gap-1.5 shrink-0 pl-1">
           {/* Save Button */}
           {onSave && (
             <button

@@ -115,13 +115,12 @@ export default function MusicExperience({
       </div>
 
       {/* Main area: left visualizer | center | right visualizer */}
-      <div className="flex-1 flex min-h-0">
+      <div className="flex-1 flex min-h-0 relative">
         {/* Left visualizer — Power */}
         <div
-          className="shrink-0 flex flex-col"
+          className="shrink-0 flex flex-col pointer-events-none opacity-80"
           style={{
-            width: 'clamp(48px, 8vw, 80px)',
-            borderRight: '1px solid var(--border-subtle)',
+            width: 'clamp(36px, 6vw, 64px)',
           }}
         >
           <HapticPowerVisualizer
@@ -132,7 +131,7 @@ export default function MusicExperience({
 
         {/* Center — Knob + Controls */}
         <div
-          className="flex-1 flex flex-col items-center justify-center min-w-0 min-h-0 gap-4 px-4 relative"
+          className="flex-1 flex flex-col items-center justify-center min-w-0 min-h-0 gap-3.5 px-2 sm:px-4 relative"
         >
           {/* Background icon */}
           <div
@@ -143,7 +142,7 @@ export default function MusicExperience({
               backgroundImage: `url(${resolved === 'light' ? '/icon_light.png' : '/icon_dark.png'})`,
               backgroundRepeat: 'no-repeat',
               backgroundPosition: 'center',
-              backgroundSize: 'clamp(160px, 30vw, 280px) auto',
+              backgroundSize: 'clamp(150px, 28vw, 260px) auto',
               backgroundPositionY: '42%',
               opacity: 0.08,
               pointerEvents: 'none',
@@ -182,10 +181,9 @@ export default function MusicExperience({
 
         {/* Right visualizer — Response */}
         <div
-          className="shrink-0 flex flex-col"
+          className="shrink-0 flex flex-col pointer-events-none opacity-80"
           style={{
-            width: 'clamp(48px, 8vw, 80px)',
-            borderLeft: '1px solid var(--border-subtle)',
+            width: 'clamp(36px, 6vw, 64px)',
           }}
         >
           <HapticResponseVisualizer lastEvent={lastEvent} />

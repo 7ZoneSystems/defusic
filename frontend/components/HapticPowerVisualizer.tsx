@@ -81,11 +81,18 @@ export default function HapticPowerVisualizer({ lastEvent, masterIntensity }: Ha
         }
 
         const y = h - (i + 1) * (barH + 2);
-        const alpha = 0.15 + bars[i] * 0.85;
+        const alpha = 0.12 + bars[i] * 0.78;
+        const currentW = barW * Math.max(0.12, bars[i]);
 
         ctx.fillStyle = bars[i] > 0.05 ? accent : muted;
         ctx.globalAlpha = alpha;
-        ctx.fillRect(offsetX, y, barW * Math.max(0.15, bars[i]), barH);
+        ctx.beginPath();
+        if (typeof ctx.roundRect === 'function') {
+          ctx.roundRect(offsetX, y, currentW, barH, 1.5);
+          ctx.fill();
+        } else {
+          ctx.fillRect(offsetX, y, currentW, barH);
+        }
       }
 
       ctx.globalAlpha = 1;
