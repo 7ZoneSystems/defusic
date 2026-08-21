@@ -130,6 +130,10 @@ gcloud run deploy hearbeat-api \
 | `OUTPUT_DIR` | `/app/outputs` | Temp analysis output directory |
 | `API_HOST` | `0.0.0.0` | Bind address |
 | `API_PORT` | `8000` | Server port |
+| `DRIVE_TOKEN_ENCRYPTION_KEY` | — | Base64-encoded 32-byte key for AES-256-GCM token encryption. Generate: `python -c "import secrets,base64;print(base64.b64encode(secrets.token_bytes(32)).decode())"` |
+| `GOOGLE_DRIVE_CLIENT_ID` | — | Google OAuth client ID for Drive integration |
+| `GOOGLE_DRIVE_CLIENT_SECRET` | — | Google OAuth client secret |
+| `FRONTEND_URL` | `http://localhost:3000` | Frontend URL for OAuth redirects (e.g. `https://defusic.vercel.app`) |
 
 ---
 

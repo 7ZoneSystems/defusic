@@ -15,6 +15,7 @@ from typing import Any
 import httpx
 
 from hearbeat import cohesivity as coh
+from hearbeat.token_encryption import encrypt_token, decrypt_token, is_encrypted
 
 logger = logging.getLogger(__name__)
 
@@ -86,13 +87,29 @@ async def refresh_access_token(refresh_token: str) -> dict[str, Any] | None:
 
 
 async def _get_valid_token(user: dict[str, Any]) -> str | None:
-    """Get a valid access token, refreshing if needed. Returns None if not connected."""
-    access_token = user.get("drive_access_token")
-    refresh_token = user.get("drive_refresh_token")
+    """Get a valid access token, refreshing if needed. Returns None if not connected.
+
+    Decrypts stored tokens and migrates legacy plaintext on first read.
+    """
+    raw_access = user.get("drive_access_token")
+    raw_refresh = user.get("drive_refresh_token")
     expiry = user.get("drive_token_expiry")
 
-    if not access_token:
+    if not raw_access:
         return None
+
+    # Decrypt stored tokens
+    access_token = decrypt_token(raw_access)
+    refresh_token = decrypt_token(raw_refresh) if raw_refresh else None
+
+    # Migrate legacy plaintext: re-encrypt and persist
+    if not is_encrypted(raw_access) or (raw_refresh and not is_encrypted(raw_refresh)):
+        try:
+            await _store_tokens(
+                user["id"], access_token, refresh_token or "", 0
+            )
+        except Exception:
+            logger.warning("Failed to migrate legacy plaintext tokens for user %s", user["id"])
 
     # Check if token is expired (with 5 min buffer)
     if expiry:
@@ -127,7 +144,7 @@ async def _store_tokens(
     refresh_token: str,
     expires_in: int,
 ) -> None:
-    """Store Drive tokens in the database."""
+    """Store Drive tokens in the database (encrypted at rest)."""
     expiry = datetime.now(timezone.utc).timestamp() + expires_in
     expiry_dt = datetime.fromtimestamp(expiry, tz=timezone.utc)
     await coh.db_query(
@@ -136,7 +153,7 @@ async def _store_tokens(
             drive_refresh_token = $2,
             drive_token_expiry = $3
         WHERE id = $4""",
-        [access_token, refresh_token, expiry_dt.isoformat(), db_user_id],
+        [encrypt_token(access_token), encrypt_token(refresh_token), expiry_dt.isoformat(), db_user_id],
     )
 
 
