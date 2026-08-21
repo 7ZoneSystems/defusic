@@ -95,6 +95,7 @@ export interface LibrarySong {
   duration_seconds: number | null;
   analysis_mode: string;
   drive_file_id: string | null;
+  analysis_drive_file_id: string | null;
   has_analysis: boolean;
   created_at: string | null;
   last_played: string | null;
@@ -308,6 +309,7 @@ export interface LibrarySongAnalysis {
   duration_seconds: number | null;
   analysis_mode: string;
   drive_file_id: string | null;
+  analysis_drive_file_id: string | null;
   analysis: Record<string, unknown>;
 }
 

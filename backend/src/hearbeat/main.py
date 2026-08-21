@@ -958,8 +958,8 @@ async def list_songs(
     rows = await coh.db_query(
         """
         SELECT s.id, s.original_name, s.file_hash, s.file_size, s.duration_seconds,
-               s.analysis_mode, s.drive_file_id, s.created_at, s.last_played,
-               a.id as analysis_id, a.created_at as analysis_created_at
+               s.analysis_mode, s.drive_file_id, s.analysis_drive_file_id, s.created_at, s.last_played,
+               a.id as legacy_analysis_id, a.created_at as analysis_created_at
         FROM user_songs s
         LEFT JOIN song_analysis a ON a.song_id = s.id
         WHERE s.user_id = $1
@@ -970,6 +970,7 @@ async def list_songs(
 
     songs = []
     for row in rows:
+        has_analysis = (row.get("analysis_drive_file_id") is not None) or (row.get("legacy_analysis_id") is not None)
         songs.append({
             "id": row["id"],
             "filename": row["original_name"],
@@ -978,7 +979,8 @@ async def list_songs(
             "duration_seconds": row["duration_seconds"],
             "analysis_mode": row["analysis_mode"],
             "drive_file_id": row.get("drive_file_id"),
-            "has_analysis": row["analysis_id"] is not None,
+            "analysis_drive_file_id": row.get("analysis_drive_file_id"),
+            "has_analysis": has_analysis,
             "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
             "last_played": row["last_played"].isoformat() if row.get("last_played") else None,
         })
@@ -1136,28 +1138,41 @@ async def analyze_drive_song(
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
-    # Save to library
+    # Save companion analysis artifact to Drive
+    analysis_dict = result.model_dump(mode="json")
+    try:
+        sample_rate = result.source.sample_rate if result and result.source else 44100
+        analysis_drive_file_id = await gdrive.upload_analysis_file(
+            token=drive_token,
+            songs_folder_id=songs_folder_id,
+            filename=filename,
+            analysis_dict=analysis_dict,
+            sha256_hash=file_hash,
+            duration_seconds=duration,
+            sample_rate=sample_rate,
+            mode=mode,
+        )
+    except Exception as e:
+        logger.error("Failed to upload analysis artifact to Drive: %s", e)
+        raise HTTPException(500, "Failed to store analysis artifact on Google Drive")
+
+    # Save to library index
     rows = await coh.db_query(
         """
-        INSERT INTO user_songs (user_id, filename, original_name, file_hash, file_size, duration_seconds, analysis_mode, drive_file_id, last_played)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+        INSERT INTO user_songs (user_id, filename, original_name, file_hash, file_size, duration_seconds, analysis_mode, drive_file_id, analysis_drive_file_id, last_played)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
         RETURNING id
         """,
-        [db_user["id"], filename, filename, file_hash, len(file_bytes), duration, mode, file_id],
+        [db_user["id"], filename, filename, file_hash, len(file_bytes), duration, mode, file_id, analysis_drive_file_id],
     )
     song_id = rows[0]["id"]
 
-    # Save analysis result
-    analysis_json = result.model_dump(mode="json")
-    await coh.db_query(
-        """
-        INSERT INTO song_analysis (song_id, analysis_data, analysis_mode)
-        VALUES ($1, $2, $3)
-        """,
-        [song_id, json.dumps(analysis_json), mode],
-    )
-
-    resp = JSONResponse(content={"song_id": song_id, "status": "analyzed"})
+    resp = JSONResponse(content={
+        "song_id": song_id,
+        "status": "analyzed",
+        "drive_file_id": file_id,
+        "analysis_drive_file_id": analysis_drive_file_id,
+    })
     if new_tokens:
         resp.set_cookie(
             "access_token", new_tokens["access_token"],
@@ -1287,19 +1302,56 @@ async def save_song_with_analysis(
     import hashlib
     file_hash = hashlib.sha256(content).hexdigest()
 
+    # Parse analysis JSON early before Drive uploads
+    try:
+        analysis_data = json.loads(effective_analysis_json)
+    except json.JSONDecodeError:
+        raise HTTPException(400, "Invalid analysis JSON")
+
     # Check if song already exists by hash
     existing = await coh.db_query(
-        "SELECT id, drive_file_id FROM user_songs WHERE user_id = $1 AND file_hash = $2",
+        "SELECT id, drive_file_id, analysis_drive_file_id FROM user_songs WHERE user_id = $1 AND file_hash = $2",
         [db_user["id"], file_hash],
     )
 
     if existing:
         song_id = existing[0]["id"]
+        drive_file_id = existing[0].get("drive_file_id")
+        analysis_drive_file_id = existing[0].get("analysis_drive_file_id")
+
+        # If analysis artifact is missing on Drive, upload it now
+        if not analysis_drive_file_id:
+            drive_token = await gdrive._get_valid_token(db_user)
+            songs_folder_id = db_user.get("drive_songs_folder_id") if db_user else None
+            if drive_token and songs_folder_id:
+                try:
+                    analysis_drive_file_id = await gdrive.upload_analysis_file(
+                        token=drive_token,
+                        songs_folder_id=songs_folder_id,
+                        filename=effective_filename,
+                        analysis_dict=analysis_data,
+                        sha256_hash=file_hash,
+                        duration_seconds=duration,
+                        mode=effective_mode,
+                    )
+                    await coh.db_query(
+                        "UPDATE user_songs SET analysis_drive_file_id = $1 WHERE id = $2",
+                        [analysis_drive_file_id, song_id],
+                    )
+                except Exception as e:
+                    logger.warning("Failed to upload missing analysis artifact for existing song %s: %s", song_id, e)
+
         await coh.db_query(
             "UPDATE user_songs SET last_played = NOW() WHERE id = $1",
             [song_id],
         )
-        resp = JSONResponse(content={"song_id": song_id, "file_hash": file_hash, "status": "already_saved"})
+        resp = JSONResponse(content={
+            "song_id": song_id,
+            "file_hash": file_hash,
+            "drive_file_id": drive_file_id,
+            "analysis_drive_file_id": analysis_drive_file_id,
+            "status": "already_saved",
+        })
         if new_tokens:
             resp.set_cookie(
                 "access_token", new_tokens["access_token"],
@@ -1326,7 +1378,7 @@ async def save_song_with_analysis(
     except Exception:
         pass
 
-    # Upload to Drive
+    # 1. Upload audio file to Drive
     try:
         mime_type = file.content_type or "application/octet-stream"
         drive_file_id = await gdrive.upload_file(
@@ -1334,35 +1386,59 @@ async def save_song_with_analysis(
             effective_filename, mime_type, content,
         )
     except Exception as e:
-        logger.error("Drive upload failed: %s", e)
-        raise HTTPException(500, "Failed to upload to Google Drive")
+        logger.error("Drive audio upload failed: %s", e)
+        raise HTTPException(500, "Failed to upload audio to Google Drive")
 
-    # Save song record
-    rows = await coh.db_query(
-        """
-        INSERT INTO user_songs (user_id, filename, original_name, file_hash, file_size, duration_seconds, analysis_mode, drive_file_id, last_played)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
-        RETURNING id
-        """,
-        [db_user["id"], effective_filename, effective_filename, file_hash, len(content), duration, effective_mode, drive_file_id],
-    )
-    song_id = rows[0]["id"]
-
-    # Save analysis (pre-existing, do NOT re-analyze)
+    # 2. Upload companion .hearbeat.json analysis artifact to Drive
     try:
-        analysis_data = json.loads(effective_analysis_json)
-    except json.JSONDecodeError:
-        raise HTTPException(400, "Invalid analysis JSON")
+        sample_rate = analysis_data.get("source", {}).get("sample_rate", 44100) if isinstance(analysis_data, dict) else 44100
+        analysis_drive_file_id = await gdrive.upload_analysis_file(
+            token=drive_token,
+            songs_folder_id=songs_folder_id,
+            filename=effective_filename,
+            analysis_dict=analysis_data,
+            sha256_hash=file_hash,
+            duration_seconds=duration,
+            sample_rate=sample_rate,
+            mode=effective_mode,
+        )
+    except Exception as e:
+        logger.error("Drive analysis upload failed: %s", e)
+        # Attempt cleanup of audio file if safe
+        try:
+            await gdrive.delete_file(drive_token, drive_file_id)
+        except Exception:
+            pass
+        raise HTTPException(500, "Failed to upload analysis artifact to Google Drive")
 
-    await coh.db_query(
-        """
-        INSERT INTO song_analysis (song_id, analysis_data, analysis_mode)
-        VALUES ($1, $2, $3)
-        """,
-        [song_id, json.dumps(analysis_data), mode],
-    )
+    # 3. Save lightweight index record to Cohesivity (no bulk analysis data)
+    try:
+        rows = await coh.db_query(
+            """
+            INSERT INTO user_songs (user_id, filename, original_name, file_hash, file_size, duration_seconds, analysis_mode, drive_file_id, analysis_drive_file_id, last_played)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+            RETURNING id
+            """,
+            [db_user["id"], effective_filename, effective_filename, file_hash, len(content), duration, effective_mode, drive_file_id, analysis_drive_file_id],
+        )
+        song_id = rows[0]["id"]
+    except Exception as e:
+        logger.error("Database insert failed for song %s: %s", file_hash, e)
+        # Attempt cleanup of Drive files
+        try:
+            await gdrive.delete_file(drive_token, drive_file_id)
+            await gdrive.delete_file(drive_token, analysis_drive_file_id)
+        except Exception:
+            pass
+        raise HTTPException(500, "Failed to save song index to library")
 
-    resp = JSONResponse(content={"song_id": song_id, "file_hash": file_hash, "drive_file_id": drive_file_id, "status": "saved"})
+    resp = JSONResponse(content={
+        "song_id": song_id,
+        "file_hash": file_hash,
+        "drive_file_id": drive_file_id,
+        "analysis_drive_file_id": analysis_drive_file_id,
+        "status": "saved",
+    })
     if new_tokens:
         resp.set_cookie(
             "access_token", new_tokens["access_token"],
@@ -1387,11 +1463,14 @@ async def delete_song(
         raise HTTPException(404, "User not found")
 
     rows = await coh.db_query(
-        "DELETE FROM user_songs WHERE id = $1 AND user_id = $2 RETURNING id",
+        "DELETE FROM user_songs WHERE id = $1 AND user_id = $2 RETURNING id, drive_file_id, analysis_drive_file_id",
         [song_id, db_user["id"]],
     )
     if not rows:
         raise HTTPException(404, "Song not found")
+
+    # Clean up legacy song_analysis row if it existed
+    await coh.db_query("DELETE FROM song_analysis WHERE song_id = $1", [song_id])
 
     resp = JSONResponse(content={"status": "deleted"})
     if new_tokens:
@@ -1430,7 +1509,11 @@ async def get_library_song_analysis(
     access_token: str | None = Cookie(None),
     refresh_token: str | None = Cookie(None),
 ) -> JSONResponse:
-    """Retrieve saved analysis data for a library song."""
+    """Retrieve saved analysis data for a library song.
+
+    Loads from Google Drive .hearbeat.json artifact if available,
+    with fallback to legacy Postgres song_analysis table and optional lazy migration.
+    """
     user, new_tokens = await coh.get_auth_user(access_token, refresh_token)
     if not user:
         raise HTTPException(401, "Not authenticated")
@@ -1442,7 +1525,7 @@ async def get_library_song_analysis(
     rows = await coh.db_query(
         """
         SELECT s.id, s.original_name, s.file_hash, s.duration_seconds, s.analysis_mode,
-               s.drive_file_id, a.analysis_data
+               s.drive_file_id, s.analysis_drive_file_id, a.analysis_data as legacy_analysis_data
         FROM user_songs s
         LEFT JOIN song_analysis a ON a.song_id = s.id
         WHERE s.id = $1 AND s.user_id = $2
@@ -1453,7 +1536,49 @@ async def get_library_song_analysis(
         raise HTTPException(404, "Song not found")
 
     row = rows[0]
-    if not row.get("analysis_data"):
+    analysis_dict = None
+    analysis_drive_file_id = row.get("analysis_drive_file_id")
+
+    # 1. Preferred path: Load from user's Google Drive .hearbeat.json artifact
+    if analysis_drive_file_id:
+        drive_token = await gdrive._get_valid_token(db_user)
+        songs_folder_id = db_user.get("drive_songs_folder_id")
+        if drive_token and songs_folder_id:
+            # Verify file ownership
+            if await gdrive.verify_file_in_folder(drive_token, analysis_drive_file_id, songs_folder_id):
+                try:
+                    analysis_dict = await gdrive.download_analysis_file(drive_token, analysis_drive_file_id)
+                except Exception as e:
+                    logger.warning("Failed to download analysis artifact %s from Drive: %s", analysis_drive_file_id, e)
+
+    # 2. Fallback path: Legacy Postgres song_analysis table + Lazy Drive Migration
+    if analysis_dict is None and row.get("legacy_analysis_data"):
+        raw_legacy = row["legacy_analysis_data"]
+        analysis_dict = raw_legacy if isinstance(raw_legacy, dict) else json.loads(raw_legacy)
+
+        # Lazy migrate legacy analysis to Drive if connected
+        drive_token = await gdrive._get_valid_token(db_user)
+        songs_folder_id = db_user.get("drive_songs_folder_id")
+        if drive_token and songs_folder_id:
+            try:
+                migrated_file_id = await gdrive.upload_analysis_file(
+                    token=drive_token,
+                    songs_folder_id=songs_folder_id,
+                    filename=row["original_name"],
+                    analysis_dict=analysis_dict,
+                    sha256_hash=row["file_hash"],
+                    duration_seconds=row.get("duration_seconds"),
+                    mode=row["analysis_mode"],
+                )
+                await coh.db_query(
+                    "UPDATE user_songs SET analysis_drive_file_id = $1 WHERE id = $2",
+                    [migrated_file_id, song_id],
+                )
+                analysis_drive_file_id = migrated_file_id
+            except Exception as e:
+                logger.warning("Lazy migration to Drive failed for song %s: %s", song_id, e)
+
+    if analysis_dict is None:
         raise HTTPException(404, "No analysis data for this song")
 
     resp = JSONResponse(content={
@@ -1463,7 +1588,8 @@ async def get_library_song_analysis(
         "duration_seconds": row["duration_seconds"],
         "analysis_mode": row["analysis_mode"],
         "drive_file_id": row.get("drive_file_id"),
-        "analysis": row["analysis_data"],
+        "analysis_drive_file_id": analysis_drive_file_id,
+        "analysis": analysis_dict,
     })
     if new_tokens:
         resp.set_cookie(
@@ -1480,7 +1606,7 @@ async def reprocess_library_song(
     access_token: str | None = Cookie(None),
     refresh_token: str | None = Cookie(None),
 ) -> JSONResponse:
-    """Reprocess a library song: re-download from Drive (if available) and re-analyze."""
+    """Reprocess a library song: re-download from Drive, re-analyze, and update Drive .hearbeat.json."""
     user, new_tokens = await coh.get_auth_user(access_token, refresh_token)
     if not user:
         raise HTTPException(401, "Not authenticated")
@@ -1491,7 +1617,7 @@ async def reprocess_library_song(
 
     # Get song
     rows = await coh.db_query(
-        "SELECT id, original_name, file_hash, file_size, drive_file_id, analysis_mode FROM user_songs WHERE id = $1 AND user_id = $2",
+        "SELECT id, original_name, file_hash, file_size, drive_file_id, analysis_drive_file_id, analysis_mode FROM user_songs WHERE id = $1 AND user_id = $2",
         [song_id, db_user["id"]],
     )
     if not rows:
@@ -1500,20 +1626,23 @@ async def reprocess_library_song(
     song = rows[0]
     analysis_mode = mode or song["analysis_mode"]
 
-    # Get audio bytes: prefer Drive, fallback to original_name
+    # Get audio bytes from Drive
     file_bytes = None
     filename = song["original_name"]
 
+    drive_token = await gdrive._get_valid_token(db_user)
+    songs_folder_id = db_user.get("drive_songs_folder_id")
+    if not drive_token or not songs_folder_id:
+        raise HTTPException(400, "Google Drive not connected")
+
     if song.get("drive_file_id"):
-        drive_token = await gdrive._get_valid_token(db_user)
-        if drive_token:
-            try:
-                file_bytes = await gdrive.download_file(drive_token, song["drive_file_id"])
-                meta = await gdrive.get_file_metadata(drive_token, song["drive_file_id"])
-                if meta:
-                    filename = meta["name"]
-            except Exception as e:
-                logger.warning("Drive download for reprocess failed: %s", e)
+        try:
+            file_bytes = await gdrive.download_file(drive_token, song["drive_file_id"])
+            meta = await gdrive.get_file_metadata(drive_token, song["drive_file_id"])
+            if meta:
+                filename = meta["name"]
+        except Exception as e:
+            logger.warning("Drive download for reprocess failed: %s", e)
 
     if file_bytes is None:
         raise HTTPException(400, "Audio file not available for reprocessing (Drive not connected or file removed)")
@@ -1548,24 +1677,55 @@ async def reprocess_library_song(
     except Exception:
         new_duration = song.get("duration_seconds")
 
+    # Upload new companion .hearbeat.json analysis artifact to Drive
+    analysis_dict = result.model_dump(mode="json")
+    try:
+        sample_rate = result.source.sample_rate if result and result.source else 44100
+        new_analysis_drive_file_id = await gdrive.upload_analysis_file(
+            token=drive_token,
+            songs_folder_id=songs_folder_id,
+            filename=filename,
+            analysis_dict=analysis_dict,
+            sha256_hash=new_hash,
+            duration_seconds=new_duration,
+            sample_rate=sample_rate,
+            mode=analysis_mode,
+        )
+    except Exception as e:
+        logger.error("Failed to upload reprocessed analysis to Drive: %s", e)
+        raise HTTPException(500, "Failed to upload analysis artifact to Google Drive")
+
+    # Clean up old analysis artifact if ID changed
+    old_analysis_file_id = song.get("analysis_drive_file_id")
+    if old_analysis_file_id and old_analysis_file_id != new_analysis_drive_file_id:
+        try:
+            await gdrive.delete_file(drive_token, old_analysis_file_id)
+        except Exception:
+            pass
+
+    # Update user_songs record with new metadata and analysis_drive_file_id
     await coh.db_query(
-        "UPDATE user_songs SET file_hash = $1, duration_seconds = $2, analysis_mode = $3 WHERE id = $4",
-        [new_hash, new_duration, analysis_mode, song_id],
+        "UPDATE user_songs SET file_hash = $1, duration_seconds = $2, analysis_mode = $3, analysis_drive_file_id = $4, last_played = NOW() WHERE id = $5",
+        [new_hash, new_duration, analysis_mode, new_analysis_drive_file_id, song_id],
     )
 
-    # Replace analysis
-    analysis_json = result.model_dump(mode="json")
+    # Remove legacy song_analysis row if it existed
     await coh.db_query(
         "DELETE FROM song_analysis WHERE song_id = $1",
         [song_id],
     )
-    await coh.db_query(
-        """
-        INSERT INTO song_analysis (song_id, analysis_data, analysis_mode)
-        VALUES ($1, $2, $3)
-        """,
-        [song_id, json.dumps(analysis_json), analysis_mode],
-    )
+
+    resp = JSONResponse(content={
+        "song_id": song_id,
+        "status": "reprocessed",
+        "analysis_drive_file_id": new_analysis_drive_file_id,
+    })
+    if new_tokens:
+        resp.set_cookie(
+            "access_token", new_tokens["access_token"],
+            httponly=True, secure=True, samesite="lax", path="/", max_age=3600,
+        )
+    return resp
 
     resp = JSONResponse(content={"song_id": song_id, "status": "reanalyzed"})
     if new_tokens:

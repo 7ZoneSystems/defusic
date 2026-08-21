@@ -346,11 +346,11 @@ class TestSaveFlow:
             patch("hearbeat.main.coh.upsert_user", new_callable=AsyncMock, return_value=db_user),
             patch("hearbeat.main.coh.db_query", new_callable=AsyncMock, side_effect=[
                 [],  # existing song check
-                [{"id": 88}],  # insert song
-                [],  # insert analysis
+                [{"id": 88}],  # insert song index
             ]),
             patch("hearbeat.main.gdrive._get_valid_token", new_callable=AsyncMock, return_value="drive_tok"),
             patch("hearbeat.main.gdrive.upload_file", new_callable=AsyncMock, return_value="drive_file_99"),
+            patch("hearbeat.main.gdrive.upload_analysis_file", new_callable=AsyncMock, return_value="analysis_file_99"),
         ):
             resp = client.post(
                 "/library/songs/save-analysis",
@@ -362,6 +362,7 @@ class TestSaveFlow:
             data = resp.json()
             assert data["status"] == "saved"
             assert data["song_id"] == 88
+            assert data["analysis_drive_file_id"] == "analysis_file_99"
 
     def test_save_requires_auth(self, client):
         resp = client.post(
@@ -406,7 +407,10 @@ class TestSaveFlow:
             patch("hearbeat.main.coh.get_auth_user", new_callable=AsyncMock, return_value=(user, None)),
             patch("hearbeat.main.coh.get_user_by_cohesivity_id", new_callable=AsyncMock, return_value=db_user),
             patch("hearbeat.main.coh.upsert_user", new_callable=AsyncMock, return_value=db_user),
-            patch("hearbeat.main.coh.db_query", new_callable=AsyncMock, return_value=[{"id": 99, "drive_file_id": "existing"}]),
+            patch("hearbeat.main.coh.db_query", new_callable=AsyncMock, side_effect=[
+                [{"id": 99, "drive_file_id": "existing", "analysis_drive_file_id": "existing_analysis"}],
+                [],  # update last_played
+            ]),
         ):
             resp = client.post(
                 f"/library/songs/save-analysis?mode=music&filename=test.mp3&analysis_json={analysis}",
@@ -436,10 +440,10 @@ class TestSaveFlow:
             patch("hearbeat.main.coh.db_query", new_callable=AsyncMock, side_effect=[
                 [],  # no existing song
                 [{"id": 200}],  # insert song
-                [],  # insert analysis
             ]),
             patch("hearbeat.main.gdrive._get_valid_token", new_callable=AsyncMock, return_value="drive_tok"),
             patch("hearbeat.main.gdrive.upload_file", new_callable=AsyncMock, return_value="new_drive_id"),
+            patch("hearbeat.main.gdrive.upload_analysis_file", new_callable=AsyncMock, return_value="new_analysis_id"),
         ):
             resp = client.post(
                 f"/library/songs/save-analysis?mode=music&filename=test.mp3&analysis_json={analysis}",
@@ -450,6 +454,7 @@ class TestSaveFlow:
             data = resp.json()
             assert data["song_id"] == 200
             assert data["status"] == "saved"
+            assert data["analysis_drive_file_id"] == "new_analysis_id"
 
     def test_save_returns_saved_status(self, client):
         user = _authenticated_user()
@@ -468,10 +473,10 @@ class TestSaveFlow:
             patch("hearbeat.main.coh.db_query", new_callable=AsyncMock, side_effect=[
                 [],  # no existing
                 [{"id": 300}],  # insert song
-                [],  # insert analysis
             ]),
             patch("hearbeat.main.gdrive._get_valid_token", new_callable=AsyncMock, return_value="drive_tok"),
             patch("hearbeat.main.gdrive.upload_file", new_callable=AsyncMock, return_value="drive_file_abc"),
+            patch("hearbeat.main.gdrive.upload_analysis_file", new_callable=AsyncMock, return_value="analysis_file_abc"),
         ):
             resp = client.post(
                 f"/library/songs/save-analysis?mode=music&filename=song.mp3&analysis_json={analysis}",
@@ -483,6 +488,7 @@ class TestSaveFlow:
             assert "song_id" in data
             assert "file_hash" in data
             assert data["drive_file_id"] == "drive_file_abc"
+            assert data["analysis_drive_file_id"] == "analysis_file_abc"
 
     def test_save_invalid_analysis_json(self, client):
         user = _authenticated_user()
@@ -496,11 +502,7 @@ class TestSaveFlow:
             patch("hearbeat.main.coh.get_auth_user", new_callable=AsyncMock, return_value=(user, None)),
             patch("hearbeat.main.coh.get_user_by_cohesivity_id", new_callable=AsyncMock, return_value=db_user),
             patch("hearbeat.main.coh.upsert_user", new_callable=AsyncMock, return_value=db_user),
-            patch("hearbeat.main.coh.db_query", new_callable=AsyncMock, side_effect=[
-                [],  # existing song check
-                [{"id": 1}],  # insert song
-                RuntimeError("should not reach analysis insert"),  # would fail at json.loads before this
-            ]),
+            patch("hearbeat.main.coh.db_query", new_callable=AsyncMock, return_value=[]),
             patch("hearbeat.main.gdrive._get_valid_token", new_callable=AsyncMock, return_value="drive_tok"),
             patch("hearbeat.main.gdrive.upload_file", new_callable=AsyncMock, return_value="drive_id"),
         ):
@@ -536,10 +538,10 @@ class TestSaveUpdatesLibrary:
             patch("hearbeat.main.coh.db_query", new_callable=AsyncMock, side_effect=[
                 [],  # no existing
                 [{"id": 400}],  # insert song
-                [],  # insert analysis
             ]),
             patch("hearbeat.main.gdrive._get_valid_token", new_callable=AsyncMock, return_value="drive_tok"),
             patch("hearbeat.main.gdrive.upload_file", new_callable=AsyncMock, return_value="drive_file_xyz"),
+            patch("hearbeat.main.gdrive.upload_analysis_file", new_callable=AsyncMock, return_value="analysis_file_xyz"),
         ):
             resp = client.post(
                 f"/library/songs/save-analysis?mode=music&filename=new_song.mp3&analysis_json={analysis}",
@@ -550,3 +552,235 @@ class TestSaveUpdatesLibrary:
             data = resp.json()
             assert data["song_id"] == 400
             assert data["status"] == "saved"
+            assert data["analysis_drive_file_id"] == "analysis_file_xyz"
+
+
+# ============================================================
+# 15-20. Drive Analysis Artifact Tests
+# ============================================================
+
+
+class TestDriveAnalysisArtifact:
+    def test_analysis_artifact_structure(self):
+        """Artifact format matches versioned schema with schema_version, source, analysis."""
+        from hearbeat.drive import build_analysis_artifact, get_analysis_filename
+
+        analysis_data = {"tempo": 128.0, "beats": [0.5, 1.0, 1.5]}
+        artifact = build_analysis_artifact(
+            analysis_dict=analysis_data,
+            filename="my_song.mp3",
+            sha256_hash="abc123hash",
+            duration_seconds=180.5,
+            sample_rate=44100,
+            mode="music",
+        )
+        assert artifact["schema_version"] == "0.1"
+        assert artifact["analysis_mode"] == "music"
+        assert artifact["source"]["filename"] == "my_song.mp3"
+        assert artifact["source"]["sha256"] == "abc123hash"
+        assert artifact["source"]["duration_seconds"] == 180.5
+        assert artifact["source"]["sample_rate"] == 44100
+        assert artifact["analysis"] == analysis_data
+        assert get_analysis_filename("my_song.mp3") == "my_song.mp3.hearbeat.json"
+
+    @pytest.mark.asyncio
+    async def test_roundtrip_serialize_deserialize(self):
+        """Analysis dict survives serialization to Drive artifact and deserialization."""
+        from hearbeat.drive import build_analysis_artifact, download_analysis_file
+
+        analysis_data = {
+            "rhythm": {"bpm": 120, "meter": "4/4"},
+            "beats": [{"time": 0.5, "confidence": 0.9}],
+            "drum_events_raw": [{"time": 0.5, "type": "kick"}],
+        }
+        artifact = build_analysis_artifact(
+            analysis_dict=analysis_data,
+            filename="roundtrip.mp3",
+            sha256_hash="roundtrip_hash",
+        )
+        json_bytes = json.dumps(artifact).encode("utf-8")
+
+        with patch("hearbeat.drive.download_file", new_callable=AsyncMock, return_value=json_bytes):
+            recovered = await download_analysis_file("fake_token", "fake_file_id")
+            assert recovered == analysis_data
+
+    def test_load_analysis_from_drive(self, client):
+        """Processed song with analysis_drive_file_id loads directly from Drive without /analyze."""
+        user = _authenticated_user()
+        db_user = {
+            "id": 42,
+            "cohesivity_user_id": 1,
+            "drive_songs_folder_id": "songs_abc",
+            "drive_access_token": "encrypted_tok",
+        }
+        mock_song = {
+            "id": 10,
+            "original_name": "track.mp3",
+            "file_hash": "hash123",
+            "duration_seconds": 120.0,
+            "analysis_mode": "music",
+            "drive_file_id": "audio_fid",
+            "analysis_drive_file_id": "analysis_fid",
+            "legacy_analysis_data": None,
+        }
+        mock_analysis = {"tempo": 130.0, "beats": [1.0, 2.0]}
+
+        with (
+            patch("hearbeat.main.coh.get_auth_user", new_callable=AsyncMock, return_value=(user, None)),
+            patch("hearbeat.main.coh.get_user_by_cohesivity_id", new_callable=AsyncMock, return_value=db_user),
+            patch("hearbeat.main.coh.db_query", new_callable=AsyncMock, return_value=[mock_song]),
+            patch("hearbeat.main.gdrive._get_valid_token", new_callable=AsyncMock, return_value="drive_tok"),
+            patch("hearbeat.main.gdrive.verify_file_in_folder", new_callable=AsyncMock, return_value=True),
+            patch("hearbeat.main.gdrive.download_analysis_file", new_callable=AsyncMock, return_value=mock_analysis),
+        ):
+            resp = client.get(
+                "/library/songs/10/analysis",
+                cookies={"access_token": "valid", "refresh_token": "valid"},
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["song_id"] == 10
+            assert data["analysis"] == mock_analysis
+            assert data["analysis_drive_file_id"] == "analysis_fid"
+
+    def test_load_legacy_postgres_fallback_with_lazy_migration(self, client):
+        """Legacy song with no analysis_drive_file_id loads from Postgres and lazily uploads to Drive."""
+        user = _authenticated_user()
+        db_user = {
+            "id": 42,
+            "cohesivity_user_id": 1,
+            "drive_songs_folder_id": "songs_abc",
+            "drive_access_token": "encrypted_tok",
+        }
+        legacy_data = {"tempo": 100.0, "legacy": True}
+        mock_song = {
+            "id": 11,
+            "original_name": "legacy_track.mp3",
+            "file_hash": "legacy_hash",
+            "duration_seconds": 60.0,
+            "analysis_mode": "music",
+            "drive_file_id": "audio_fid",
+            "analysis_drive_file_id": None,
+            "legacy_analysis_data": legacy_data,
+        }
+
+        with (
+            patch("hearbeat.main.coh.get_auth_user", new_callable=AsyncMock, return_value=(user, None)),
+            patch("hearbeat.main.coh.get_user_by_cohesivity_id", new_callable=AsyncMock, return_value=db_user),
+            patch("hearbeat.main.coh.db_query", new_callable=AsyncMock, side_effect=[
+                [mock_song],  # select song query
+                [],  # update user_songs query for lazy migration
+            ]),
+            patch("hearbeat.main.gdrive._get_valid_token", new_callable=AsyncMock, return_value="drive_tok"),
+            patch("hearbeat.main.gdrive.upload_analysis_file", new_callable=AsyncMock, return_value="migrated_fid"),
+        ):
+            resp = client.get(
+                "/library/songs/11/analysis",
+                cookies={"access_token": "valid", "refresh_token": "valid"},
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["song_id"] == 11
+            assert data["analysis"] == legacy_data
+            assert data["analysis_drive_file_id"] == "migrated_fid"
+
+    def test_reprocess_updates_drive_artifact(self, client):
+        """Reprocessing downloads audio from Drive, re-analyzes, and updates Drive .hearbeat.json."""
+        user = _authenticated_user()
+        db_user = {
+            "id": 42,
+            "cohesivity_user_id": 1,
+            "drive_songs_folder_id": "songs_abc",
+            "drive_access_token": "encrypted_tok",
+        }
+        mock_song = {
+            "id": 15,
+            "original_name": "reprocess_me.mp3",
+            "file_hash": "old_hash",
+            "file_size": 1000,
+            "drive_file_id": "audio_fid",
+            "analysis_drive_file_id": "old_analysis_fid",
+            "analysis_mode": "music",
+        }
+
+        mock_analysis_result = MagicMock()
+        mock_analysis_result.model_dump.return_value = {"reanalyzed": True, "tempo": 140}
+        mock_analysis_result.source = MagicMock()
+        mock_analysis_result.source.sample_rate = 44100
+
+        with (
+            patch("hearbeat.main.coh.get_auth_user", new_callable=AsyncMock, return_value=(user, None)),
+            patch("hearbeat.main.coh.get_user_by_cohesivity_id", new_callable=AsyncMock, return_value=db_user),
+            patch("hearbeat.main.coh.db_query", new_callable=AsyncMock, side_effect=[
+                [mock_song],  # select song
+                [],  # update user_songs
+                [],  # delete legacy song_analysis
+            ]),
+            patch("hearbeat.main.gdrive._get_valid_token", new_callable=AsyncMock, return_value="drive_tok"),
+            patch("hearbeat.main.gdrive.download_file", new_callable=AsyncMock, return_value=b"fake_audio_bytes"),
+            patch("hearbeat.main.gdrive.get_file_metadata", new_callable=AsyncMock, return_value={"name": "reprocess_me.mp3"}),
+            patch("hearbeat.pipeline.analyze_file", return_value=mock_analysis_result),
+            patch("hearbeat.main.gdrive.upload_analysis_file", new_callable=AsyncMock, return_value="new_analysis_fid"),
+            patch("hearbeat.main.gdrive.delete_file", new_callable=AsyncMock, return_value=True),
+        ):
+            resp = client.post(
+                "/library/songs/15/reprocess",
+                cookies={"access_token": "valid", "refresh_token": "valid"},
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["song_id"] == 15
+            assert data["status"] == "reprocessed"
+            assert data["analysis_drive_file_id"] == "new_analysis_fid"
+
+    def test_library_songs_lists_analysis_drive_file_id(self, client):
+        """GET /library/songs returns analysis_drive_file_id and has_analysis boolean."""
+        user = _authenticated_user()
+        db_user = {
+            "id": 42,
+            "cohesivity_user_id": 1,
+        }
+        mock_rows = [
+            {
+                "id": 1,
+                "original_name": "song1.mp3",
+                "file_hash": "hash1",
+                "file_size": 1024,
+                "duration_seconds": 120.0,
+                "analysis_mode": "music",
+                "drive_file_id": "d1",
+                "analysis_drive_file_id": "a1",
+                "created_at": None,
+                "last_played": None,
+                "legacy_analysis_id": None,
+            },
+            {
+                "id": 2,
+                "original_name": "song2.mp3",
+                "file_hash": "hash2",
+                "file_size": 2048,
+                "duration_seconds": 180.0,
+                "analysis_mode": "drumming",
+                "drive_file_id": "d2",
+                "analysis_drive_file_id": None,
+                "created_at": None,
+                "last_played": None,
+                "legacy_analysis_id": 99,
+            },
+        ]
+        with (
+            patch("hearbeat.main.coh.get_auth_user", new_callable=AsyncMock, return_value=(user, None)),
+            patch("hearbeat.main.coh.get_user_by_cohesivity_id", new_callable=AsyncMock, return_value=db_user),
+            patch("hearbeat.main.coh.db_query", new_callable=AsyncMock, return_value=mock_rows),
+        ):
+            resp = client.get(
+                "/library/songs",
+                cookies={"access_token": "valid", "refresh_token": "valid"},
+            )
+            assert resp.status_code == 200
+            songs = resp.json()["songs"]
+            assert len(songs) == 2
+            assert songs[0]["has_analysis"] is True
+            assert songs[0]["analysis_drive_file_id"] == "a1"
+            assert songs[1]["has_analysis"] is True
+            assert songs[1]["analysis_drive_file_id"] is None

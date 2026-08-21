@@ -27,6 +27,76 @@ HEARBEAT_FOLDER_NAME = "HearBeat"
 SONGS_FOLDER_NAME = "Songs"
 MARKER_FILE_NAME = "connected.txt"
 MARKER_CONTENT = "HearBeat Google Drive connection marker"
+ANALYSIS_SUFFIX = ".hearbeat.json"
+ANALYSIS_SCHEMA_VERSION = "0.1"
+
+
+def get_analysis_filename(audio_filename: str) -> str:
+    """Return the companion analysis artifact filename for a given audio file."""
+    return f"{audio_filename}{ANALYSIS_SUFFIX}"
+
+
+def build_analysis_artifact(
+    analysis_dict: dict[str, Any],
+    filename: str,
+    sha256_hash: str,
+    duration_seconds: float | None = None,
+    sample_rate: int = 44100,
+    mode: str = "music",
+) -> dict[str, Any]:
+    """Build a versioned analysis artifact dictionary."""
+    return {
+        "schema_version": ANALYSIS_SCHEMA_VERSION,
+        "analysis_mode": mode,
+        "source": {
+            "filename": filename,
+            "sha256": sha256_hash,
+            "duration_seconds": duration_seconds,
+            "sample_rate": sample_rate,
+        },
+        "analysis": analysis_dict,
+    }
+
+
+async def upload_analysis_file(
+    token: str,
+    songs_folder_id: str,
+    filename: str,
+    analysis_dict: dict[str, Any],
+    sha256_hash: str,
+    duration_seconds: float | None = None,
+    sample_rate: int = 44100,
+    mode: str = "music",
+) -> str:
+    """Serialize and upload companion .hearbeat.json artifact to Drive. Returns file ID."""
+    artifact = build_analysis_artifact(
+        analysis_dict=analysis_dict,
+        filename=filename,
+        sha256_hash=sha256_hash,
+        duration_seconds=duration_seconds,
+        sample_rate=sample_rate,
+        mode=mode,
+    )
+    import json
+    json_bytes = json.dumps(artifact, ensure_ascii=False, indent=2).encode("utf-8")
+    analysis_filename = get_analysis_filename(filename)
+    return await upload_file(
+        token=token,
+        songs_folder_id=songs_folder_id,
+        filename=analysis_filename,
+        mime_type="application/json",
+        file_bytes=json_bytes,
+    )
+
+
+async def download_analysis_file(token: str, file_id: str) -> dict[str, Any]:
+    """Download and deserialize a .hearbeat.json analysis artifact from Drive."""
+    import json
+    content = await download_file(token, file_id)
+    data = json.loads(content.decode("utf-8"))
+    if isinstance(data, dict) and "analysis" in data:
+        return data["analysis"]
+    return data
 
 # Required scope for file-level access
 DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file"

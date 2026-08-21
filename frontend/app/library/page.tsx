@@ -37,6 +37,7 @@ type MergedSong = {
   analysis_mode: string;
   has_analysis: boolean;
   drive_file_id: string | null;
+  analysis_drive_file_id?: string | null;
   created_at: string | null;
   last_played: string | null;
   source: "both" | "db" | "drive";
