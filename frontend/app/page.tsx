@@ -2,7 +2,7 @@
 
 import { Suspense, useState, useCallback, useEffect, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Waves, Vibrate, Target } from 'lucide-react';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import TrackUpload from '@/components/TrackUpload';
@@ -60,6 +60,7 @@ function HomeContent() {
   const [selectedMeta, setSelectedMeta] = useState<SelectedFileMeta | null>(null);
   const [restoring, setRestoring] = useState(true);
   const [mode, setMode] = useState<AnalysisMode>('music');
+  const [drummingTab, setDrummingTab] = useState<'waveform' | 'haptics' | 'analysis'>('waveform');
   const [currentTime, setCurrentTime] = useState(0);
   const [engineStatus, setEngineStatus] = useState<'online' | 'offline' | 'analyzing'>('online');
   const { resolved } = useTheme();
@@ -672,39 +673,37 @@ function HomeContent() {
           <div className="flex-1 flex flex-col overflow-hidden">
             {/* Track info bar */}
             <div
-              className="panel flex items-center justify-between px-4 py-2"
+              className="panel flex items-center justify-between px-4 py-2 shrink-0"
               style={{ borderBottom: '1px solid var(--border)' }}
             >
               <div className="flex items-center gap-3 min-w-0">
                 <span className="text-sm truncate" style={{ color: 'var(--text-primary)' }}>
                   {result.source.filename}
                 </span>
-                {isDrumming && (
-                  <span
-                    className="text-xs px-1.5 py-0.5"
-                    style={{
-                      color: 'var(--event-hihat)',
-                      border: '1px solid var(--event-hihat)',
-                      borderRadius: '2px',
-                      fontFamily: 'var(--font-geist-mono)',
-                    }}
-                  >
-                    DRUMMING
-                  </span>
-                )}
+                <span
+                  className="text-xs px-1.5 py-0.5"
+                  style={{
+                    color: 'var(--event-hihat)',
+                    border: '1px solid var(--event-hihat)',
+                    borderRadius: '2px',
+                    fontFamily: 'var(--font-geist-mono)',
+                  }}
+                >
+                  DRUMMING
+                </span>
               </div>
               <div className="flex items-center gap-2">
-                {isDrumming && hapticTimeline && (
-                  <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                {hapticTimeline && (
+                  <span className="text-xs hidden sm:inline" style={{ color: 'var(--text-muted)' }}>
                     {hapticTimeline.events.length} haptic events
                   </span>
                 )}
-                {isDrumming && result.warnings.length > 0 && (
+                {result.warnings.length > 0 && (
                   <span className="text-xs" style={{ color: 'var(--warning)' }}>
                     {result.warnings.length} warning{result.warnings.length > 1 ? 's' : ''}
                   </span>
                 )}
-                {isDrumming && jobId && (
+                {jobId && (
                   <a
                     href={getJsonDownloadUrl(jobId)}
                     className="px-2 py-1 text-xs"
@@ -734,85 +733,232 @@ function HomeContent() {
               </div>
             </div>
 
-            {/* Drumming-only: Metrics, Warnings */}
-            {isDrumming && (
-              <>
-                <DrumMetricsStrip result={result} />
-                {result.warnings.length > 0 && (
-                  <div
-                    className="px-4 py-2 flex items-start gap-2"
-                    style={{ background: 'color-mix(in srgb, var(--warning) 8%, transparent)', borderBottom: '1px solid var(--border)' }}
-                  >
-                    <AlertTriangle size={12} style={{ color: 'var(--warning)', marginTop: '2px' }} />
-                    <div className="flex-1">
-                      {result.warnings.map((w, i) => (
-                        <p key={i} className="text-xs" style={{ color: 'var(--warning)' }}>{w}</p>
+            {/* Drumming Body: Left Sidebar (Desktop) + Tab Content + Bottom Tab Bar (Mobile) */}
+            <div className="flex-1 flex min-h-0 overflow-hidden relative">
+              {/* Desktop Vertical Sidebar */}
+              <aside
+                className="hidden sm:flex flex-col gap-1 p-3 w-40 sm:w-44 shrink-0 select-none"
+                style={{
+                  background: 'var(--bg-surface)',
+                  borderRight: '1px solid var(--border-subtle)',
+                }}
+                role="tablist"
+                aria-label="Drumming Navigation"
+              >
+                <button
+                  role="tab"
+                  aria-selected={drummingTab === 'waveform'}
+                  onClick={() => setDrummingTab('waveform')}
+                  className="flex items-center gap-2.5 px-3 py-2 text-xs rounded-sm transition-all font-medium text-left"
+                  style={{
+                    color: drummingTab === 'waveform' ? 'var(--event-hihat)' : 'var(--text-secondary)',
+                    background: drummingTab === 'waveform' ? 'color-mix(in srgb, var(--event-hihat) 12%, transparent)' : 'transparent',
+                    border: drummingTab === 'waveform' ? '1px solid color-mix(in srgb, var(--event-hihat) 40%, transparent)' : '1px solid transparent',
+                    fontFamily: 'var(--font-geist-mono)',
+                  }}
+                >
+                  <Waves size={15} />
+                  <span>Waveform</span>
+                </button>
+
+                <button
+                  role="tab"
+                  aria-selected={drummingTab === 'haptics'}
+                  onClick={() => setDrummingTab('haptics')}
+                  className="flex items-center gap-2.5 px-3 py-2 text-xs rounded-sm transition-all font-medium text-left"
+                  style={{
+                    color: drummingTab === 'haptics' ? 'var(--event-hihat)' : 'var(--text-secondary)',
+                    background: drummingTab === 'haptics' ? 'color-mix(in srgb, var(--event-hihat) 12%, transparent)' : 'transparent',
+                    border: drummingTab === 'haptics' ? '1px solid color-mix(in srgb, var(--event-hihat) 40%, transparent)' : '1px solid transparent',
+                    fontFamily: 'var(--font-geist-mono)',
+                  }}
+                >
+                  <Vibrate size={15} />
+                  <span>Haptics</span>
+                </button>
+
+                <button
+                  role="tab"
+                  aria-selected={drummingTab === 'analysis'}
+                  onClick={() => setDrummingTab('analysis')}
+                  className="flex items-center gap-2.5 px-3 py-2 text-xs rounded-sm transition-all font-medium text-left"
+                  style={{
+                    color: drummingTab === 'analysis' ? 'var(--event-hihat)' : 'var(--text-secondary)',
+                    background: drummingTab === 'analysis' ? 'color-mix(in srgb, var(--event-hihat) 12%, transparent)' : 'transparent',
+                    border: drummingTab === 'analysis' ? '1px solid color-mix(in srgb, var(--event-hihat) 40%, transparent)' : '1px solid transparent',
+                    fontFamily: 'var(--font-geist-mono)',
+                  }}
+                >
+                  <Target size={15} />
+                  <span>Analysis</span>
+                </button>
+              </aside>
+
+              {/* Main Content Area — preserves active state across all tabs */}
+              <div className="flex-1 overflow-y-auto p-4 flex flex-col min-h-0 pb-16 sm:pb-4">
+                {/* 1. Waveform Section */}
+                <div className={drummingTab === 'waveform' ? 'flex flex-col gap-4' : 'hidden'}>
+                  {jobId && (
+                    <DualWaveform
+                      originalData={originalWaveform}
+                      diagnosticData={diagnosticWaveform}
+                      duration={result.source.duration_seconds}
+                      currentTime={currentTime}
+                      onSeek={setCurrentTime}
+                      originalVolume={originalVolume}
+                      diagnosticVolume={diagnosticVolume}
+                    />
+                  )}
+
+                  <Timeline result={result} currentTime={currentTime} onSeek={setCurrentTime} />
+
+                  {jobId && (
+                    <DiagnosticPlayer
+                      jobId={jobId}
+                      duration={result.source.duration_seconds}
+                      mode={result.mode}
+                      layers={layers}
+                      currentTime={currentTime}
+                      onTimeUpdate={setCurrentTime}
+                      onLayerToggle={handleLayerToggle}
+                      originalVolume={originalVolume}
+                      diagnosticVolume={diagnosticVolume}
+                      onOriginalVolumeChange={setOriginalVolume}
+                      onDiagnosticVolumeChange={setDiagnosticVolume}
+                      hapticController={hapticController}
+                      audioSrc={libraryAudioSrc || undefined}
+                    />
+                  )}
+                </div>
+
+                {/* 2. Haptics Section */}
+                <div className={drummingTab === 'haptics' ? 'flex flex-col gap-4' : 'hidden'}>
+                  <HapticPanel
+                    controller={hapticController}
+                    realHardware={realHardware}
+                    lastEvent={hapticLastEvent}
+                    config={hapticConfig}
+                    onConfigChange={setHapticConfig}
+                  />
+                </div>
+
+                {/* 3. Analysis Section */}
+                <div className={drummingTab === 'analysis' ? 'flex flex-col gap-4' : 'hidden'}>
+                  <DrumMetricsStrip result={result} />
+
+                  {result.warnings.length > 0 && (
+                    <div
+                      className="px-4 py-2 flex items-start gap-2 rounded-sm"
+                      style={{ background: 'color-mix(in srgb, var(--warning) 8%, transparent)', border: '1px solid var(--border)' }}
+                    >
+                      <AlertTriangle size={12} style={{ color: 'var(--warning)', marginTop: '2px' }} />
+                      <div className="flex-1">
+                        {result.warnings.map((w, i) => (
+                          <p key={i} className="text-xs" style={{ color: 'var(--warning)' }}>{w}</p>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Drum Event Isolation & Playback Selector */}
+                  <div className="panel p-4 flex flex-col gap-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs uppercase tracking-wider font-semibold" style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-geist-mono)' }}>
+                        Drum Event Isolation & Playback
+                      </span>
+                      <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                        Toggle events to isolate in audio & haptics
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {layers.map((layer) => (
+                        <button
+                          key={layer.id}
+                          onClick={() => handleLayerToggle(layer.id)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-sm transition-all font-medium"
+                          style={{
+                            background: layer.enabled ? `${layer.color}20` : 'var(--bg-elevated)',
+                            color: layer.enabled ? layer.color : 'var(--text-muted)',
+                            border: `1px solid ${layer.enabled ? layer.color : 'var(--border)'}`,
+                            fontFamily: 'var(--font-geist-mono)',
+                          }}
+                          aria-pressed={layer.enabled}
+                        >
+                          <span
+                            className="w-2 h-2 rounded-full"
+                            style={{ background: layer.enabled ? layer.color : 'var(--border)' }}
+                          />
+                          <span>{layer.label}</span>
+                        </button>
                       ))}
                     </div>
                   </div>
-                )}
-              </>
-            )}
 
-            {/* Main content area */}
-            <div className="flex-1 overflow-auto p-4 flex flex-col gap-4">
-              {/* Drumming-only: Dual waveform */}
-              {isDrumming && jobId && (
-                <DualWaveform
-                  originalData={originalWaveform}
-                  diagnosticData={diagnosticWaveform}
-                  duration={result.source.duration_seconds}
-                  currentTime={currentTime}
-                  onSeek={setCurrentTime}
-                  originalVolume={originalVolume}
-                  diagnosticVolume={diagnosticVolume}
-                />
-              )}
+                  {result.drum_events_raw.length > 0 && (
+                    <DrumPatternView
+                      drumEvents={result.drum_events_raw}
+                      rhythm={result.rhythm}
+                    />
+                  )}
 
-              {/* Drumming-only: Timeline */}
-              {isDrumming && (
-                <Timeline result={result} currentTime={currentTime} onSeek={setCurrentTime} />
-              )}
+                  <DrumEventInspector events={result.drum_events_raw} />
+                </div>
+              </div>
 
-              {/* Playback */}
-              {jobId && (
-                <DiagnosticPlayer
-                  jobId={jobId}
-                  duration={result.source.duration_seconds}
-                  mode={result.mode}
-                  layers={layers}
-                  currentTime={currentTime}
-                  onTimeUpdate={setCurrentTime}
-                  onLayerToggle={handleLayerToggle}
-                  originalVolume={originalVolume}
-                  diagnosticVolume={diagnosticVolume}
-                  onOriginalVolumeChange={setOriginalVolume}
-                  onDiagnosticVolumeChange={setDiagnosticVolume}
-                  hapticController={hapticController}
-                  audioSrc={libraryAudioSrc || undefined}
-                />
-              )}
+              {/* Mobile Bottom Navigation Bar */}
+              <nav
+                className="flex sm:hidden items-center justify-around fixed bottom-0 inset-x-0 z-30 py-2 px-4 select-none"
+                style={{
+                  background: 'var(--bg-surface)',
+                  borderTop: '1px solid var(--border)',
+                  boxShadow: '0 -4px 16px rgba(0,0,0,0.3)',
+                }}
+                role="tablist"
+                aria-label="Drumming mobile navigation"
+              >
+                <button
+                  role="tab"
+                  aria-selected={drummingTab === 'waveform'}
+                  onClick={() => setDrummingTab('waveform')}
+                  className="flex flex-col items-center justify-center gap-0.5 px-4 py-1 rounded-sm transition-all"
+                  style={{
+                    color: drummingTab === 'waveform' ? 'var(--event-hihat)' : 'var(--text-muted)',
+                  }}
+                  aria-label="Waveform"
+                >
+                  <Waves size={19} />
+                  <span className="text-[10px] font-medium" style={{ fontFamily: 'var(--font-geist-mono)' }}>Wave</span>
+                </button>
 
-              {/* Haptic Panel */}
-              <HapticPanel
-                controller={hapticController}
-                realHardware={realHardware}
-                lastEvent={hapticLastEvent}
-                config={hapticConfig}
-                onConfigChange={setHapticConfig}
-              />
+                <button
+                  role="tab"
+                  aria-selected={drummingTab === 'haptics'}
+                  onClick={() => setDrummingTab('haptics')}
+                  className="flex flex-col items-center justify-center gap-0.5 px-4 py-1 rounded-sm transition-all"
+                  style={{
+                    color: drummingTab === 'haptics' ? 'var(--event-hihat)' : 'var(--text-muted)',
+                  }}
+                  aria-label="Haptics"
+                >
+                  <Vibrate size={19} />
+                  <span className="text-[10px] font-medium" style={{ fontFamily: 'var(--font-geist-mono)' }}>Haptics</span>
+                </button>
 
-              {/* Drumming-only: Drum pattern + Event inspector */}
-              {isDrumming && result.drum_events_raw.length > 0 && (
-                <DrumPatternView
-                  drumEvents={result.drum_events_raw}
-                  rhythm={result.rhythm}
-                />
-              )}
-
-              {isDrumming && (
-                <DrumEventInspector events={result.drum_events_raw} />
-              )}
+                <button
+                  role="tab"
+                  aria-selected={drummingTab === 'analysis'}
+                  onClick={() => setDrummingTab('analysis')}
+                  className="flex flex-col items-center justify-center gap-0.5 px-4 py-1 rounded-sm transition-all"
+                  style={{
+                    color: drummingTab === 'analysis' ? 'var(--event-hihat)' : 'var(--text-muted)',
+                  }}
+                  aria-label="Analysis"
+                >
+                  <Target size={19} />
+                  <span className="text-[10px] font-medium" style={{ fontFamily: 'var(--font-geist-mono)' }}>Analysis</span>
+                </button>
+              </nav>
             </div>
           </div>
         )}
