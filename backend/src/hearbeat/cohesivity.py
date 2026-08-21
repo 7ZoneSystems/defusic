@@ -201,7 +201,7 @@ async def upsert_user(
         VALUES ($1, $2, $3, $4, NOW())
         ON CONFLICT (cohesivity_user_id)
         DO UPDATE SET email = $2, name = $3, picture = $4, last_login = NOW()
-        RETURNING id, cohesivity_user_id, email, name, picture, created_at, last_login
+        RETURNING *
         """,
         [cohesivity_user_id, email, name, picture],
     )
@@ -211,7 +211,7 @@ async def upsert_user(
 async def get_user_by_cohesivity_id(cohesivity_user_id: int) -> dict | None:
     """Get a user by their Cohesivity user ID."""
     rows = await db_query(
-        "SELECT id, cohesivity_user_id, email, name, picture, created_at, last_login FROM users WHERE cohesivity_user_id = $1",
+        "SELECT * FROM users WHERE cohesivity_user_id = $1",
         [cohesivity_user_id],
     )
     return rows[0] if rows else None
@@ -220,7 +220,7 @@ async def get_user_by_cohesivity_id(cohesivity_user_id: int) -> dict | None:
 async def get_user_by_id(user_id: int) -> dict | None:
     """Get a user by internal DB ID."""
     rows = await db_query(
-        "SELECT id, cohesivity_user_id, email, name, picture, created_at, last_login FROM users WHERE id = $1",
+        "SELECT * FROM users WHERE id = $1",
         [user_id],
     )
     return rows[0] if rows else None
