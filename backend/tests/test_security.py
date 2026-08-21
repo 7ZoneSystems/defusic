@@ -256,6 +256,7 @@ class TestLibrarySaveDriveRequired:
             patch("hearbeat.main.coh.get_auth_user", new_callable=AsyncMock, return_value=(user, None)),
             patch("hearbeat.main.coh.get_user_by_cohesivity_id", new_callable=AsyncMock, return_value=db_user),
             patch("hearbeat.main.gdrive._get_valid_token", new_callable=AsyncMock, return_value=None),
+            patch("hearbeat.main.coh.db_query", new_callable=AsyncMock, return_value=[]),
         ):
             resp = client.post(
                 "/library/songs?mode=music",
