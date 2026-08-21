@@ -180,17 +180,17 @@ export default function MusicAudioPlayer({
   return (
     <div
       className="flex flex-col items-center gap-2.5 w-full select-none"
-      style={{ maxWidth: 'min(480px, 85vw)' }}
+      style={{ maxWidth: 'min(480px, 94vw)' }}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
       <audio ref={audioRef} preload="auto" />
 
       {/* Time + Progress */}
-      <div className="flex items-center gap-3 w-full">
+      <div className="flex items-center gap-2.5 w-full">
         <span
           className="text-xs text-right shrink-0 tabular-nums"
-          style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-geist-mono)', width: '36px' }}
+          style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-geist-mono)', width: '34px' }}
         >
           {formatTime(currentTime)}
         </span>
@@ -202,24 +202,24 @@ export default function MusicAudioPlayer({
           step={0.01}
           value={currentTime}
           onChange={handleSeek}
-          className="flex-1 min-w-0"
+          className="flex-1 min-w-0 cursor-pointer"
           style={{ height: 4, accentColor: 'var(--gold)' }}
           aria-label="Seek"
         />
 
         <span
           className="text-xs shrink-0 tabular-nums"
-          style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-geist-mono)', width: '36px' }}
+          style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-geist-mono)', width: '34px' }}
         >
           {formatTime(duration)}
         </span>
       </div>
 
       {/* Controls row: Volume | Previous - Play - Next | Save | Haptics */}
-      <div className="flex items-center justify-between w-full px-1 relative">
+      <div className="flex items-center justify-between w-full px-0.5 relative">
         {/* Left: Volume slider */}
-        <div className="flex items-center gap-1.5 shrink-0">
-          <Volume2 size={14} style={{ color: 'var(--text-muted)' }} />
+        <div className="flex items-center gap-1 shrink-0">
+          <Volume2 size={13} style={{ color: 'var(--text-muted)' }} />
           <input
             type="range"
             min={0}
@@ -227,27 +227,27 @@ export default function MusicAudioPlayer({
             step={0.01}
             value={volume}
             onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
-            className="w-16 sm:w-20"
+            className="w-12 sm:w-16 md:w-20 cursor-pointer"
             style={{ height: 3, accentColor: 'var(--gold)' }}
             aria-label="Song volume"
           />
         </div>
 
         {/* Center: Previous / Play-Pause / Next */}
-        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+        <div className="flex items-center gap-0.5 sm:gap-1.5 shrink-0">
           {/* Previous Button */}
           {onPrevious && (
             <button
               onClick={onPrevious}
               disabled={!hasPrevious}
-              className="p-2 rounded-full transition-all flex items-center justify-center hover:bg-accent/10 disabled:opacity-30 disabled:cursor-not-allowed"
+              className="p-1.5 sm:p-2 rounded-full transition-all flex items-center justify-center hover:bg-accent/10 disabled:opacity-25 disabled:cursor-not-allowed"
               style={{
                 color: hasPrevious ? 'var(--text-primary)' : 'var(--text-muted)',
               }}
               aria-label="Previous song"
               title="Previous song"
             >
-              <SkipBack size={18} />
+              <SkipBack size={17} />
             </button>
           )}
 
@@ -256,8 +256,8 @@ export default function MusicAudioPlayer({
             onClick={togglePlay}
             className="flex items-center justify-center"
             style={{
-              width: 84,
-              height: 84,
+              width: 76,
+              height: 76,
               background: 'none',
               border: 'none',
               borderRadius: '2px',
@@ -272,8 +272,8 @@ export default function MusicAudioPlayer({
               src={playing ? pauseImg : playImg}
               alt=""
               style={{
-                width: 58,
-                height: 58,
+                width: 52,
+                height: 52,
                 objectFit: 'contain',
                 transition: 'opacity 150ms ease',
               }}
@@ -285,26 +285,26 @@ export default function MusicAudioPlayer({
             <button
               onClick={onNext}
               disabled={!hasNext}
-              className="p-2 rounded-full transition-all flex items-center justify-center hover:bg-accent/10 disabled:opacity-30 disabled:cursor-not-allowed"
+              className="p-1.5 sm:p-2 rounded-full transition-all flex items-center justify-center hover:bg-accent/10 disabled:opacity-25 disabled:cursor-not-allowed"
               style={{
                 color: hasNext ? 'var(--text-primary)' : 'var(--text-muted)',
               }}
               aria-label="Next song"
               title="Next song"
             >
-              <SkipForward size={18} />
+              <SkipForward size={17} />
             </button>
           )}
         </div>
 
         {/* Right: Save & Haptic buttons */}
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-1.5 shrink-0">
           {/* Save Button */}
           {onSave && (
             <button
               onClick={onSave}
               disabled={saveState === 'saving'}
-              className="p-2 flex items-center justify-center shrink-0"
+              className="p-1.5 sm:p-2 flex items-center justify-center shrink-0"
               style={{
                 color: saveState === 'saved'
                   ? 'var(--success)'
@@ -353,7 +353,7 @@ export default function MusicAudioPlayer({
           {/* Haptic settings */}
           <button
             onClick={onHapticSettingsClick}
-            className="p-2 flex items-center justify-center shrink-0"
+            className="p-1.5 sm:p-2 flex items-center justify-center shrink-0"
             style={{
               color: hapticEnabled ? 'var(--success)' : 'var(--text-muted)',
               border: '1px solid var(--border)',
@@ -372,7 +372,7 @@ export default function MusicAudioPlayer({
       {onOpenQueue && (
         <button
           onClick={onOpenQueue}
-          className="flex items-center gap-1.5 px-3 py-1 text-[11px] rounded-full transition-all hover:bg-accent/15 mt-1 border select-none"
+          className="flex items-center gap-1.5 px-3.5 py-1 text-[11px] rounded-full transition-all hover:bg-accent/15 mt-1 border select-none hover:border-accent/40"
           style={{
             color: 'var(--text-muted)',
             borderColor: 'var(--border)',

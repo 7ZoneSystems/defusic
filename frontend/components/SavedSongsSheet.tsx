@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useCallback, useRef } from 'react';
-import { ChevronDown, HardDrive, Music, Loader2 } from 'lucide-react';
+import { ChevronDown, HardDrive, Music, Loader2, Sparkles } from 'lucide-react';
 import { LibrarySong } from '@/lib/api';
 
 interface SavedSongsSheetProps {
@@ -61,7 +61,7 @@ export default function SavedSongsSheet({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col justify-end"
+      className="fixed inset-0 z-50 flex flex-col justify-end select-none"
       style={{
         background: 'rgba(0, 0, 0, 0.55)',
         backdropFilter: 'blur(3px)',
@@ -74,15 +74,25 @@ export default function SavedSongsSheet({
       aria-modal="true"
       aria-label="Saved Songs"
     >
+      <style>{`
+        @keyframes sheetSlideUp {
+          from { transform: translateY(100%); }
+          to { transform: translateY(0); }
+        }
+        .sheet-animated {
+          animation: sheetSlideUp 260ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+      `}</style>
+
       <div
-        className="w-full max-w-lg mx-auto flex flex-col max-h-[70vh] overflow-hidden transition-transform duration-300 ease-out"
+        className="w-full max-w-lg mx-auto flex flex-col max-h-[70vh] sm:max-h-[55vh] overflow-hidden sheet-animated"
         style={{
           background: 'var(--bg-surface)',
           borderTop: '1px solid var(--border)',
           borderLeft: '1px solid var(--border)',
           borderRight: '1px solid var(--border)',
-          borderTopLeftRadius: '12px',
-          borderTopRightRadius: '12px',
+          borderTopLeftRadius: '14px',
+          borderTopRightRadius: '14px',
           boxShadow: '0 -8px 32px rgba(0,0,0,0.4)',
         }}
         onClick={(e) => e.stopPropagation()}
@@ -91,30 +101,36 @@ export default function SavedSongsSheet({
       >
         {/* Drag Handle & Header */}
         <div
-          className="flex flex-col items-center pt-2.5 pb-2 px-4 cursor-pointer select-none shrink-0"
+          className="flex flex-col items-center pt-2.5 pb-2 px-5 cursor-pointer select-none shrink-0"
           style={{ borderBottom: '1px solid var(--border-subtle)' }}
           onClick={onClose}
         >
           {/* Handle bar */}
           <div
-            className="w-10 h-1 rounded-full mb-2 opacity-60 hover:opacity-100 transition-opacity"
+            className="w-10 h-1 rounded-full mb-1 opacity-60 hover:opacity-100 transition-opacity"
             style={{ background: 'var(--text-muted)' }}
           />
           <div className="flex items-center justify-between w-full">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2.5">
               <span
-                className="text-xs uppercase tracking-wider font-semibold"
-                style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-geist-mono)' }}
+                className="leading-none text-2xl"
+                style={{
+                  color: 'var(--text-primary)',
+                  fontFamily: 'var(--font-caveat)',
+                  fontWeight: 600,
+                  letterSpacing: '0.02em',
+                }}
               >
                 Saved Songs
               </span>
               {queue.length > 0 && (
                 <span
-                  className="text-[11px] px-1.5 py-0.2 rounded-sm"
+                  className="text-[11px] px-2 py-0.5 rounded-full"
                   style={{
                     color: 'var(--text-muted)',
                     background: 'var(--bg-elevated)',
                     fontFamily: 'var(--font-geist-mono)',
+                    border: '1px solid var(--border-subtle)',
                   }}
                 >
                   {queue.length}
@@ -127,24 +143,32 @@ export default function SavedSongsSheet({
               className="p-1 rounded-sm text-text-muted hover:text-text-primary transition-colors"
               aria-label="Close saved songs"
             >
-              <ChevronDown size={16} />
+              <ChevronDown size={18} />
             </button>
           </div>
         </div>
 
         {/* Song List Content */}
-        <div className="flex-1 overflow-y-auto p-2 space-y-1">
+        <div className="flex-1 overflow-y-auto p-2.5 space-y-1 scrollbar-thin">
           {loading && queue.length === 0 ? (
-            <div className="flex items-center justify-center py-10 gap-2 text-sm" style={{ color: 'var(--text-muted)' }}>
+            <div className="flex items-center justify-center py-12 gap-2 text-sm" style={{ color: 'var(--text-muted)' }}>
               <Loader2 size={16} className="animate-spin" />
               <span>Loading saved songs...</span>
             </div>
           ) : queue.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
-              <p className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>
+              <Sparkles size={20} className="mb-2 opacity-40" style={{ color: 'var(--gold)' }} />
+              <p
+                className="text-2xl"
+                style={{
+                  color: 'var(--text-secondary)',
+                  fontFamily: 'var(--font-caveat)',
+                  fontWeight: 600,
+                }}
+              >
                 Nothing saved
               </p>
-              <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+              <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-geist-sans)' }}>
                 Analyze and save tracks to see them here.
               </p>
             </div>
@@ -174,7 +198,7 @@ export default function SavedSongsSheet({
                       {isCurrent ? (
                         <div
                           className="w-2 h-2 rounded-full animate-pulse"
-                          style={{ background: 'var(--accent)' }}
+                          style={{ background: 'var(--accent)', boxShadow: '0 0 6px var(--accent)' }}
                         />
                       ) : (
                         <span
@@ -197,6 +221,7 @@ export default function SavedSongsSheet({
                       className="text-xs truncate font-medium"
                       style={{
                         color: isCurrent ? 'var(--text-primary)' : 'var(--text-secondary)',
+                        fontWeight: isCurrent ? 600 : 400,
                       }}
                     >
                       {song.filename}
