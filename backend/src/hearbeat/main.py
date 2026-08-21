@@ -941,6 +941,18 @@ async def drive_delete_file(
 # --- Library endpoints ---
 
 
+def _serialize_timestamp(value: Any) -> str | None:
+    """Serialize timestamp/date value to ISO format string.
+
+    Accepts datetime objects, already formatted ISO strings, or None.
+    """
+    if value is None:
+        return None
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)
+
+
 @app.get("/library/songs")
 async def list_songs(
     access_token: str | None = Cookie(None),
@@ -981,8 +993,8 @@ async def list_songs(
             "drive_file_id": row.get("drive_file_id"),
             "analysis_drive_file_id": row.get("analysis_drive_file_id"),
             "has_analysis": has_analysis,
-            "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
-            "last_played": row["last_played"].isoformat() if row.get("last_played") else None,
+            "created_at": _serialize_timestamp(row.get("created_at")),
+            "last_played": _serialize_timestamp(row.get("last_played")),
         })
 
     resp = JSONResponse(content={"songs": songs})
@@ -1310,7 +1322,7 @@ async def save_song_with_analysis(
 
     # Check if song already exists by hash
     existing = await coh.db_query(
-        "SELECT id, drive_file_id, analysis_drive_file_id FROM user_songs WHERE user_id = $1 AND file_hash = $2",
+        "SELECT id, drive_file_id, analysis_drive_file_id, duration_seconds, original_name FROM user_songs WHERE user_id = $1 AND file_hash = $2",
         [db_user["id"], file_hash],
     )
 
@@ -1318,6 +1330,15 @@ async def save_song_with_analysis(
         song_id = existing[0]["id"]
         drive_file_id = existing[0].get("drive_file_id")
         analysis_drive_file_id = existing[0].get("analysis_drive_file_id")
+        duration = existing[0].get("duration_seconds")
+        if duration is None:
+            try:
+                import io
+                import soundfile as sf
+                audio_data, sr = sf.read(io.BytesIO(content), dtype="float32")
+                duration = len(audio_data) / sr
+            except Exception:
+                duration = None
 
         # If analysis artifact is missing on Drive, upload it now
         if not analysis_drive_file_id:
@@ -1771,8 +1792,8 @@ async def list_user_presets(
             "description": row["description"],
             "config": row["config"],
             "is_default": row["is_default"],
-            "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
-            "updated_at": row["updated_at"].isoformat() if row.get("updated_at") else None,
+            "created_at": _serialize_timestamp(row.get("created_at")),
+            "updated_at": _serialize_timestamp(row.get("updated_at")),
         })
 
     resp = JSONResponse(content={"presets": presets})

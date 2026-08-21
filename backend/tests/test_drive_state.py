@@ -784,3 +784,155 @@ class TestDriveAnalysisArtifact:
             assert songs[0]["analysis_drive_file_id"] == "a1"
             assert songs[1]["has_analysis"] is True
             assert songs[1]["analysis_drive_file_id"] is None
+
+    def test_library_songs_handles_string_datetime_null_timestamps(self, client):
+        """GET /library/songs handles str, datetime, and None timestamp formats without crashing."""
+        from datetime import datetime, timezone
+        user = _authenticated_user()
+        db_user = {
+            "id": 42,
+            "cohesivity_user_id": 1,
+        }
+        now_dt = datetime.now(timezone.utc)
+        iso_str = "2026-08-21T07:50:17+00:00"
+
+        mock_rows = [
+            {
+                "id": 1,
+                "original_name": "song_dt.mp3",
+                "file_hash": "hash_dt",
+                "file_size": 1024,
+                "duration_seconds": 120.0,
+                "analysis_mode": "music",
+                "drive_file_id": "d1",
+                "analysis_drive_file_id": "a1",
+                "created_at": now_dt,  # datetime object
+                "last_played": now_dt,  # datetime object
+                "legacy_analysis_id": None,
+            },
+            {
+                "id": 2,
+                "original_name": "song_str.mp3",
+                "file_hash": "hash_str",
+                "file_size": 2048,
+                "duration_seconds": 180.0,
+                "analysis_mode": "drumming",
+                "drive_file_id": "d2",
+                "analysis_drive_file_id": "a2",
+                "created_at": iso_str,  # string timestamp from edge
+                "last_played": iso_str,  # string timestamp from edge
+                "legacy_analysis_id": None,
+            },
+            {
+                "id": 3,
+                "original_name": "song_null.mp3",
+                "file_hash": "hash_null",
+                "file_size": 512,
+                "duration_seconds": 60.0,
+                "analysis_mode": "music",
+                "drive_file_id": None,
+                "analysis_drive_file_id": None,
+                "created_at": None,  # None
+                "last_played": None,  # None
+                "legacy_analysis_id": None,
+            },
+        ]
+        with (
+            patch("hearbeat.main.coh.get_auth_user", new_callable=AsyncMock, return_value=(user, None)),
+            patch("hearbeat.main.coh.get_user_by_cohesivity_id", new_callable=AsyncMock, return_value=db_user),
+            patch("hearbeat.main.coh.db_query", new_callable=AsyncMock, return_value=mock_rows),
+        ):
+            resp = client.get(
+                "/library/songs",
+                cookies={"access_token": "valid", "refresh_token": "valid"},
+            )
+            assert resp.status_code == 200
+            songs = resp.json()["songs"]
+            assert len(songs) == 3
+            assert songs[0]["created_at"] == now_dt.isoformat()
+            assert songs[1]["created_at"] == iso_str
+            assert songs[2]["created_at"] is None
+
+    def test_existing_song_lazy_migration_with_duration_present(self, client):
+        """Existing song without analysis artifact uploads missing artifact using existing duration."""
+        user = _authenticated_user()
+        db_user = {
+            "id": 42,
+            "cohesivity_user_id": 1,
+            "drive_songs_folder_id": "songs_abc",
+            "drive_access_token": "encrypted_tok",
+        }
+        existing_song = {
+            "id": 55,
+            "drive_file_id": "existing_audio_id",
+            "analysis_drive_file_id": None,  # missing
+            "duration_seconds": 210.5,  # present
+            "original_name": "existing_song.mp3",
+        }
+        analysis = json.dumps({"tempo": 125, "beats": []})
+
+        with (
+            patch("hearbeat.main.coh.get_auth_user", new_callable=AsyncMock, return_value=(user, None)),
+            patch("hearbeat.main.coh.get_user_by_cohesivity_id", new_callable=AsyncMock, return_value=db_user),
+            patch("hearbeat.main.coh.upsert_user", new_callable=AsyncMock, return_value=db_user),
+            patch("hearbeat.main.coh.db_query", new_callable=AsyncMock, side_effect=[
+                [existing_song],  # existing song lookup
+                [],  # update user_songs with analysis_drive_file_id
+                [],  # update last_played
+            ]),
+            patch("hearbeat.main.gdrive._get_valid_token", new_callable=AsyncMock, return_value="drive_tok"),
+            patch("hearbeat.main.gdrive.upload_analysis_file", new_callable=AsyncMock, return_value="uploaded_artifact_id") as mock_upload,
+        ):
+            resp = client.post(
+                f"/library/songs/save-analysis?mode=music&filename=existing_song.mp3&analysis_json={analysis}",
+                files={"file": ("existing_song.mp3", b"audio_bytes", "audio/mpeg")},
+                cookies={"access_token": "valid", "refresh_token": "valid"},
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["status"] == "already_saved"
+            assert data["song_id"] == 55
+            assert data["analysis_drive_file_id"] == "uploaded_artifact_id"
+            mock_upload.assert_called_once()
+            assert mock_upload.call_args.kwargs["duration_seconds"] == 210.5
+
+    def test_existing_song_lazy_migration_with_duration_missing(self, client):
+        """Existing song without duration or artifact computes duration from content and migrates."""
+        user = _authenticated_user()
+        db_user = {
+            "id": 42,
+            "cohesivity_user_id": 1,
+            "drive_songs_folder_id": "songs_abc",
+            "drive_access_token": "encrypted_tok",
+        }
+        existing_song = {
+            "id": 56,
+            "drive_file_id": "existing_audio_id",
+            "analysis_drive_file_id": None,  # missing
+            "duration_seconds": None,  # missing
+            "original_name": "existing_song_no_dur.mp3",
+        }
+        analysis = json.dumps({"tempo": 125, "beats": []})
+
+        with (
+            patch("hearbeat.main.coh.get_auth_user", new_callable=AsyncMock, return_value=(user, None)),
+            patch("hearbeat.main.coh.get_user_by_cohesivity_id", new_callable=AsyncMock, return_value=db_user),
+            patch("hearbeat.main.coh.upsert_user", new_callable=AsyncMock, return_value=db_user),
+            patch("hearbeat.main.coh.db_query", new_callable=AsyncMock, side_effect=[
+                [existing_song],  # existing song lookup
+                [],  # update user_songs with analysis_drive_file_id
+                [],  # update last_played
+            ]),
+            patch("hearbeat.main.gdrive._get_valid_token", new_callable=AsyncMock, return_value="drive_tok"),
+            patch("hearbeat.main.gdrive.upload_analysis_file", new_callable=AsyncMock, return_value="uploaded_artifact_id_2"),
+        ):
+            resp = client.post(
+                f"/library/songs/save-analysis?mode=music&filename=existing_song_no_dur.mp3&analysis_json={analysis}",
+                files={"file": ("existing_song_no_dur.mp3", b"audio_bytes", "audio/mpeg")},
+                cookies={"access_token": "valid", "refresh_token": "valid"},
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["status"] == "already_saved"
+            assert data["song_id"] == 56
+            assert data["analysis_drive_file_id"] == "uploaded_artifact_id_2"
