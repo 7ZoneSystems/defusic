@@ -235,7 +235,7 @@ function LibraryContent() {
   if (!user) {
     return (
       <div className="min-h-screen" style={{ background: "var(--bg-primary)" }}>
-        <Header />
+        <Header backHref="/" backLabel="Main" />
         <div className="flex flex-col items-center justify-center gap-6" style={{ minHeight: "calc(100vh - 60px)" }}>
           <h1 className="text-2xl font-semibold" style={{ color: "var(--text-primary)" }}>
             Your Library
@@ -265,7 +265,7 @@ function LibraryContent() {
   if (!driveLoading && !driveConnected) {
     return (
       <div className="min-h-screen" style={{ background: "var(--bg-primary)" }}>
-        <Header />
+        <Header backHref="/" backLabel="Main" />
         <div
           className="flex flex-col items-center justify-center px-6"
           style={{ minHeight: "calc(100vh - 60px)" }}
@@ -281,7 +281,7 @@ function LibraryContent() {
   if (!driveLoading && driveConnected && !loading && mergedSongs.length === 0) {
     return (
       <div className="min-h-screen" style={{ background: "var(--bg-primary)" }}>
-        <Header />
+        <Header backHref="/" backLabel="Main" />
         <div
           className="flex flex-col items-center justify-center px-6 gap-4"
           style={{ minHeight: "calc(100vh - 60px)" }}
@@ -302,7 +302,7 @@ function LibraryContent() {
   // --- Drive connected / loading ---
   return (
     <div className="min-h-screen" style={{ background: "var(--bg-primary)" }}>
-      <Header />
+      <Header backHref="/" backLabel="Main" />
       <div className="p-6 max-w-4xl mx-auto" style={{ minHeight: "calc(100vh - 60px)" }}>
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-semibold" style={{ color: "var(--text-primary)" }}>
