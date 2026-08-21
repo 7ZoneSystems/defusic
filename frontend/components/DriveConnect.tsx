@@ -13,7 +13,6 @@ export default function DriveConnect() {
     const code = searchParams.get("drive_code");
     if (code) {
       exchangeCode(code).catch(console.error);
-      // Clean up URL params
       window.history.replaceState({}, "", "/library");
     }
   }, [searchParams, exchangeCode]);
@@ -29,25 +28,37 @@ export default function DriveConnect() {
 
   if (connected) {
     return (
-      <button
-        onClick={disconnect}
-        className="flex items-center gap-2 px-3 py-1.5 text-sm border border-border rounded-sm
-                   hover:bg-accent transition-colors"
-      >
-        <Unplug size={14} />
-        <span>Disconnect Drive</span>
-      </button>
+      <div className="flex flex-col gap-1">
+        <button
+          onClick={disconnect}
+          className="flex items-center gap-2 px-3 py-1.5 text-sm border border-border rounded-sm
+                     hover:bg-accent transition-colors"
+        >
+          <Unplug size={14} />
+          <span>Disconnect Drive</span>
+        </button>
+        <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+          Your saved songs are stored in your Google Drive under HearBeat/Songs/.
+          Disconnecting does not delete your files.
+        </p>
+      </div>
     );
   }
 
   return (
-    <button
-      onClick={connect}
-      className="flex items-center gap-2 px-3 py-1.5 text-sm border border-border rounded-sm
-                 bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-    >
-      <Plug size={14} />
-      <span>Connect Google Drive</span>
-    </button>
+    <div className="flex flex-col gap-1">
+      <button
+        onClick={connect}
+        className="flex items-center gap-2 px-3 py-1.5 text-sm border border-border rounded-sm
+                   bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+      >
+        <Plug size={14} />
+        <span>Connect Google Drive</span>
+      </button>
+      <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+        Optional. HearBeat uses Google Drive only after you authorize access.
+        Saved audio stays in your Drive under a dedicated HearBeat/Songs/ folder.
+      </p>
+    </div>
   );
 }

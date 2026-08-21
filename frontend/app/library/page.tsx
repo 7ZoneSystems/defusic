@@ -98,9 +98,15 @@ function LibraryContent() {
       )}
 
       {driveConnected && (
-        <div className="mb-4 p-3 rounded bg-muted flex items-center gap-2 text-sm">
-          <HardDrive size={14} />
-          <span>Songs are saved to your Google Drive under HearBeat/Songs/</span>
+        <div className="mb-4 p-3 rounded bg-muted text-sm" style={{ color: "var(--text-secondary)" }}>
+          <div className="flex items-center gap-2 mb-1">
+            <HardDrive size={14} />
+            <span>Songs are saved to your Google Drive under HearBeat/Songs/.</span>
+          </div>
+          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+            Removing a song from HearBeat does not delete it from Drive.
+            Use the trash icon to delete a file from Google Drive permanently.
+          </p>
         </div>
       )}
 
