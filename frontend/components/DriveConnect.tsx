@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { useGoogleDrive } from "@/lib/drive";
+import { useAuth } from "@/lib/auth";
 import { useTheme } from "@/lib/theme";
 import { HardDrive } from "lucide-react";
 
@@ -12,16 +13,17 @@ interface DriveConnectProps {
 
 export default function DriveConnect({ variant = "compact" }: DriveConnectProps) {
   const { connected, loading, connect, exchangeCode } = useGoogleDrive();
+  const { user, loading: authLoading } = useAuth();
   const { resolved: theme } = useTheme();
   const searchParams = useSearchParams();
 
   useEffect(() => {
     const code = searchParams.get("drive_code");
-    if (code) {
+    if (code && !authLoading && user) {
       exchangeCode(code).catch(console.error);
       window.history.replaceState({}, "", "/library");
     }
-  }, [searchParams, exchangeCode]);
+  }, [searchParams, exchangeCode, authLoading, user]);
 
   if (loading) {
     return (

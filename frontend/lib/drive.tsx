@@ -13,6 +13,7 @@ import {
   exchangeDriveCode,
   disconnectDrive,
 } from "./api";
+import { useAuth } from "./auth";
 
 interface DriveContextType {
   connected: boolean;
@@ -35,6 +36,7 @@ const REDIRECT_URI = typeof window !== "undefined"
   : "";
 
 export function GoogleDriveProvider({ children }: { children: React.ReactNode }) {
+  const { loading: authLoading } = useAuth();
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [folderId, setFolderId] = useState<string | null>(null);
@@ -64,9 +66,10 @@ export function GoogleDriveProvider({ children }: { children: React.ReactNode })
   }, []);
 
   useEffect(() => {
+    if (authLoading) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     refresh();
-  }, [refresh]);
+  }, [authLoading, refresh]);
 
   const connect = useCallback(() => {
     const scope = "https://www.googleapis.com/auth/drive.file";
