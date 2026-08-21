@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { Suspense, useState, useCallback, useEffect, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { AlertTriangle } from 'lucide-react';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
@@ -15,7 +16,7 @@ import DrumPatternView from '@/components/DrumPatternView';
 import AnalysisProgress from '@/components/AnalysisProgress';
 import MusicExperience from '@/components/MusicExperience';
 import HapticPanel from '@/components/HapticPanel';
-import { analyzeFile, checkHealth, getHapticTimeline, getJsonDownloadUrl, getWaveformData } from '@/lib/api';
+import { analyzeFile, checkHealth, getHapticTimeline, getJsonDownloadUrl, getWaveformData, getLibrarySongAnalysis, getDriveDownloadUrl } from '@/lib/api';
 import { AnalysisResult, AnalysisMode, AppState, DiagnosticLayer, WaveformData } from '@/lib/types';
 import { DRUM_LAYERS, MUSIC_LAYERS } from '@/lib/types';
 import { HapticConfig, HapticEvent, HapticTimeline, DEFAULT_HAPTIC_CONFIG } from '@/lib/haptic-types';
@@ -33,6 +34,20 @@ interface SelectedFileMeta {
 }
 
 export default function Home() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg-primary)' }}>
+        <p style={{ color: 'var(--text-muted)' }}>Loading...</p>
+      </div>
+    }>
+      <HomeContent />
+    </Suspense>
+  );
+}
+
+function HomeContent() {
+  const searchParams = useSearchParams();
+  const librarySongId = searchParams.get('library');
   const [state, setState] = useState<AppState>('idle');
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [jobId, setJobId] = useState<string>('');
@@ -59,6 +74,7 @@ export default function Home() {
   const [hapticLastEvent, setHapticLastEvent] = useState<HapticEvent | null>(null);
   const [hapticController, setHapticController] = useState<HapticController | null>(null);
   const [realHardware, setRealHardware] = useState(false);
+  const [libraryAudioSrc, setLibraryAudioSrc] = useState<string | null>(null);
   const hapticInitRef = useRef(false);
 
   // Initialize haptic driver once
@@ -127,6 +143,53 @@ export default function Home() {
     tryRestore();
     return () => { active = false; };
   }, []);
+
+  // Load library song when ?library= query param is present
+  useEffect(() => {
+    if (!librarySongId) return;
+    const songId = parseInt(librarySongId, 10);
+    if (isNaN(songId)) return;
+
+    let active = true;
+
+    async function loadLibrarySong() {
+      try {
+        setState('analyzing');
+        setEngineStatus('analyzing');
+
+        const data = await getLibrarySongAnalysis(songId);
+        if (!active) return;
+
+        // Cast analysis data to AnalysisResult
+        const analysisResult = data.analysis as unknown as AnalysisResult;
+        setResult(analysisResult);
+        setMode(data.analysis_mode as AnalysisMode);
+        setJobId(`library-${songId}`);
+
+        // Set audio source from Drive
+        if (data.drive_file_id) {
+          setLibraryAudioSrc(getDriveDownloadUrl(data.drive_file_id));
+        }
+
+        // Load haptic timeline from analysis
+        const hapticData = await getHapticTimeline(`library-${songId}`).catch(() => null);
+        if (active && hapticData) {
+          setHapticTimeline(hapticData);
+        }
+
+        setState('complete');
+        setEngineStatus('online');
+      } catch (err) {
+        if (!active) return;
+        setError(err instanceof Error ? err.message : 'Failed to load library song');
+        setState('error');
+        setEngineStatus('online');
+      }
+    }
+
+    loadLibrarySong();
+    return () => { active = false; };
+  }, [librarySongId]);
 
   // Sync haptic enabled state with config
   useEffect(() => {
@@ -250,6 +313,7 @@ export default function Home() {
     setOriginalWaveform(null);
     setDiagnosticWaveform(null);
     setHapticTimeline(null);
+    setLibraryAudioSrc(null);
     hapticController?.stop();
     clearPersistedFile().catch(() => {});
   }, [hapticController]);
@@ -428,6 +492,7 @@ export default function Home() {
             lastEvent={hapticLastEvent}
             hapticConfig={hapticConfig}
             onHapticConfigChange={setHapticConfig}
+            audioSrc={libraryAudioSrc || undefined}
           />
         )}
 

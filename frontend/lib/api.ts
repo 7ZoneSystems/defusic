@@ -241,3 +241,67 @@ export async function deleteDriveFile(fileId: string): Promise<{ status: string 
   if (!res.ok) throw new Error("Failed to delete from Drive");
   return res.json();
 }
+
+// --- Drive songs listing ---
+
+export interface DriveSongFile {
+  id: string;
+  name: string;
+  size: string;
+  mimeType: string;
+  createdTime: string;
+}
+
+export async function listDriveSongs(): Promise<DriveSongFile[]> {
+  const res = await fetch(`${API_BASE}/drive/songs`, {
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error("Failed to list Drive songs");
+  const data = await res.json();
+  return data.songs;
+}
+
+export async function analyzeDriveSong(
+  fileId: string,
+  mode: string = "music"
+): Promise<{ song_id: number; status: string }> {
+  const res = await fetch(`${API_BASE}/drive/analyze/${encodeURIComponent(fileId)}?mode=${mode}`, {
+    method: "POST",
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error("Failed to analyze Drive song");
+  return res.json();
+}
+
+// --- Library analysis retrieval ---
+
+export interface LibrarySongAnalysis {
+  song_id: number;
+  filename: string;
+  file_hash: string;
+  duration_seconds: number | null;
+  analysis_mode: string;
+  drive_file_id: string | null;
+  analysis: Record<string, unknown>;
+}
+
+export async function getLibrarySongAnalysis(songId: number): Promise<LibrarySongAnalysis> {
+  const res = await fetch(`${API_BASE}/library/songs/${songId}/analysis`, {
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error("Failed to fetch analysis");
+  return res.json();
+}
+
+export async function reprocessLibrarySong(
+  songId: number,
+  mode?: string
+): Promise<{ song_id: number; status: string }> {
+  const params = mode ? `?mode=${mode}` : "";
+  const res = await fetch(`${API_BASE}/library/songs/${songId}/reprocess${params}`, {
+    method: "POST",
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error("Failed to reprocess song");
+  return res.json();
+}

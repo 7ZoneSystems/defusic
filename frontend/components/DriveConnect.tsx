@@ -3,10 +3,16 @@
 import { useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { useGoogleDrive } from "@/lib/drive";
-import { HardDrive, Plug, Unplug } from "lucide-react";
+import { useTheme } from "@/lib/theme";
+import { HardDrive } from "lucide-react";
 
-export default function DriveConnect() {
-  const { connected, loading, connect, disconnect, exchangeCode } = useGoogleDrive();
+interface DriveConnectProps {
+  variant?: "full" | "compact";
+}
+
+export default function DriveConnect({ variant = "compact" }: DriveConnectProps) {
+  const { connected, loading, connect, exchangeCode } = useGoogleDrive();
+  const { resolved: theme } = useTheme();
   const searchParams = useSearchParams();
 
   useEffect(() => {
@@ -27,20 +33,45 @@ export default function DriveConnect() {
   }
 
   if (connected) {
+    if (variant === "full") {
+      return (
+        <div className="flex items-center gap-2 text-sm" style={{ color: "var(--success)" }}>
+          <HardDrive size={14} />
+          <span>Drive connected</span>
+        </div>
+      );
+    }
     return (
-      <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-2 text-sm" style={{ color: "var(--success)" }}>
+        <HardDrive size={14} />
+        <span>Drive connected</span>
+      </div>
+    );
+  }
+
+  if (variant === "full") {
+    const illustrationSrc = theme === "light" ? "/drive_light.png" : "/drive_dark.png";
+    return (
+      <div className="flex flex-col items-center gap-6">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={illustrationSrc}
+          alt="Connect Google Drive to save your songs"
+          className="w-full max-w-md h-auto"
+          style={{ maxHeight: "50vh", objectFit: "contain" }}
+        />
         <button
-          onClick={disconnect}
-          className="flex items-center gap-2 px-3 py-1.5 text-sm border border-border rounded-sm
-                     hover:bg-accent transition-colors"
+          onClick={connect}
+          className="block transition-opacity hover:opacity-80"
+          aria-label="Connect Google Drive"
         >
-          <Unplug size={14} />
-          <span>Disconnect Drive</span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/drive_connect.png"
+            alt="Connect Google Drive"
+            className="h-12 w-auto"
+          />
         </button>
-        <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-          Your saved songs are stored in your Google Drive under HearBeat/Songs/.
-          Disconnecting does not delete your files.
-        </p>
       </div>
     );
   }
@@ -52,7 +83,7 @@ export default function DriveConnect() {
         className="flex items-center gap-2 px-3 py-1.5 text-sm border border-border rounded-sm
                    bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
       >
-        <Plug size={14} />
+        <HardDrive size={14} />
         <span>Connect Google Drive</span>
       </button>
       <p className="text-xs" style={{ color: "var(--text-muted)" }}>

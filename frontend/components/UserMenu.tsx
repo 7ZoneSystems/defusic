@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 import { useAuth } from "@/lib/auth";
+import { useGoogleDrive } from "@/lib/drive";
 
 export default function UserMenu() {
   const { user, loading, login, logout } = useAuth();
+  const { connected: driveConnected, disconnect: driveDisconnect, loading: driveLoading } = useGoogleDrive();
   const [open, setOpen] = useState(false);
 
   if (loading) return null;
@@ -29,24 +31,23 @@ export default function UserMenu() {
     <div className="relative">
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 text-xs px-2 py-1 rounded-sm transition-opacity hover:opacity-80"
+        className="flex items-center gap-1 text-xs px-1.5 py-1 rounded-sm transition-opacity hover:opacity-80"
         style={{
           color: "var(--text-primary)",
           border: "1px solid var(--border)",
-          fontFamily: "var(--font-geist-mono)",
         }}
+        aria-label="Account"
       >
         {user.picture ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={user.picture}
             alt=""
-            className="w-4 h-4 rounded-full"
+            className="w-5 h-5 rounded-full"
           />
         ) : (
-          <span className="w-4 h-4 rounded-full bg-accent inline-block" />
+          <span className="w-5 h-5 rounded-full bg-accent inline-block" />
         )}
-        <span className="hidden sm:inline">{user.name || user.email}</span>
       </button>
 
       {open && (
@@ -56,22 +57,13 @@ export default function UserMenu() {
             onClick={() => setOpen(false)}
           />
           <div
-            className="absolute right-0 top-full mt-1 z-50 min-w-[160px] py-1 rounded-sm"
+            className="absolute right-0 top-full mt-1 z-50 min-w-[180px] py-1 rounded-sm"
             style={{
               background: "var(--bg-primary)",
               border: "1px solid var(--border)",
               boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
             }}
           >
-            <div
-              className="px-3 py-2 text-xs"
-              style={{
-                color: "var(--text-muted)",
-                borderBottom: "1px solid var(--border)",
-              }}
-            >
-              {user.email}
-            </div>
             <a
               href="/library"
               className="block px-3 py-2 text-xs hover:bg-accent/50 transition-colors"
@@ -80,6 +72,29 @@ export default function UserMenu() {
             >
               Library
             </a>
+            {!driveLoading && (
+              <div
+                className="px-3 py-2 text-xs"
+                style={{
+                  color: driveConnected ? "var(--success)" : "var(--text-muted)",
+                  borderBottom: "1px solid var(--border)",
+                }}
+              >
+                {driveConnected ? "Drive connected" : "Drive not connected"}
+              </div>
+            )}
+            {driveConnected && (
+              <button
+                onClick={() => {
+                  setOpen(false);
+                  driveDisconnect();
+                }}
+                className="w-full text-left px-3 py-2 text-xs hover:bg-accent/50 transition-colors"
+                style={{ color: "var(--text-primary)" }}
+              >
+                Disconnect Drive
+              </button>
+            )}
             <button
               onClick={() => {
                 setOpen(false);

@@ -308,6 +308,27 @@ async def get_file_metadata(token: str, file_id: str) -> dict[str, Any] | None:
     return None
 
 
+async def verify_file_in_folder(token: str, file_id: str, folder_id: str) -> bool:
+    """Verify that a file exists inside the specified folder.
+
+    Queries Drive for the file and checks that one of its parents
+    matches the expected folder ID. This prevents operations on
+    arbitrary Drive files the user can access but that are not
+    inside HearBeat/Songs/.
+    """
+    resp = await _drive_request(
+        "GET",
+        f"{DRIVE_API_BASE}/files/{file_id}",
+        token,
+        params={"fields": "id,parents", "supportsAllDrives": "true"},
+    )
+    if resp.status_code != 200:
+        return False
+    data = resp.json()
+    parents = data.get("parents", [])
+    return folder_id in parents
+
+
 async def disconnect_drive(db_user_id: int) -> None:
     """Clear Drive tokens and folder IDs from user record."""
     await coh.db_query(

@@ -16,6 +16,7 @@ interface MusicAudioPlayerProps {
   onVolumeChange: (v: number) => void;
   onHapticSettingsClick: () => void;
   hapticEnabled: boolean;
+  audioSrc?: string;
 }
 
 function formatTime(t: number) {
@@ -34,6 +35,7 @@ export default function MusicAudioPlayer({
   onVolumeChange,
   onHapticSettingsClick,
   hapticEnabled,
+  audioSrc: audioSrcProp,
 }: MusicAudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const initializedRef = useRef(false);
@@ -43,7 +45,7 @@ export default function MusicAudioPlayer({
   const { resolved } = useTheme();
   useEffect(() => { onTimeUpdateRef.current = onTimeUpdate; });
 
-  const audioSrc = getOriginalAudioUrl(jobId);
+  const audioSrc = audioSrcProp || getOriginalAudioUrl(jobId);
 
   const playImg = resolved === 'light' ? '/play_light.png' : '/play_dark.png';
   const pauseImg = resolved === 'light' ? '/pause_light.png' : '/pause_dark.png';

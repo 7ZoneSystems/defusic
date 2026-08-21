@@ -22,6 +22,7 @@ interface MusicExperienceProps {
   lastEvent: HapticEvent | null;
   hapticConfig: HapticConfig;
   onHapticConfigChange: (config: HapticConfig) => void;
+  audioSrc?: string;
 }
 
 export default function MusicExperience({
@@ -35,6 +36,7 @@ export default function MusicExperience({
   lastEvent,
   hapticConfig,
   onHapticConfigChange,
+  audioSrc,
 }: MusicExperienceProps) {
   const [volume, setVolume] = useState(0.7);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -145,6 +147,7 @@ export default function MusicExperience({
             onVolumeChange={setVolume}
             onHapticSettingsClick={() => setSettingsOpen(true)}
             hapticEnabled={hapticConfig.master_intensity > 0}
+            audioSrc={audioSrc}
           />
         </div>
 

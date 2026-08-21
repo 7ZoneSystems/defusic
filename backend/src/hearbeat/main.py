@@ -14,7 +14,7 @@ import httpx
 import numpy as np
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile, Cookie, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from hearbeat.config import API_HOST, API_PORT, MAX_UPLOAD_MB, OUTPUT_DIR
 from hearbeat.haptic_config import HapticConfig, get_preset, list_presets
@@ -589,8 +589,8 @@ async def auth_callback(
 ) -> RedirectResponse:
     """Handle OAuth callback from Cohesivity.
 
-    Redirects to the frontend callback page which sets cookies client-side.
-    Uses FRONTEND_URL env var for absolute redirect when behind a reverse proxy.
+    Tokens are set as HttpOnly cookies server-side and never exposed
+    in the redirect URL to the browser.
     """
     frontend_url = os.getenv("FRONTEND_URL", "")
 
@@ -599,16 +599,21 @@ async def auth_callback(
         target = f"{frontend_url}{error_path}" if frontend_url else error_path
         return RedirectResponse(url=target)
 
-    # Build absolute URL to frontend callback page
-    callback_path = (
-        f"/auth/callback"
-        f"?access_token={access_token}"
-        f"&refresh_token={refresh_token or ''}"
-        f"&return_to={return_to}"
-    )
-    target = f"{frontend_url}{callback_path}" if frontend_url else callback_path
+    redirect_path = return_to if return_to.startswith("/") else "/"
+    target = f"{frontend_url}{redirect_path}" if frontend_url else redirect_path
+    resp = RedirectResponse(url=target)
 
-    return RedirectResponse(url=target)
+    resp.set_cookie(
+        "access_token", access_token,
+        httponly=True, secure=True, samesite="lax", path="/", max_age=3600,
+    )
+    if refresh_token:
+        resp.set_cookie(
+            "refresh_token", refresh_token,
+            httponly=True, secure=True, samesite="lax", path="/", max_age=30 * 86400,
+        )
+
+    return resp
 
 
 @app.get("/auth/me")
@@ -802,6 +807,14 @@ async def drive_download(
     if not drive_token:
         raise HTTPException(400, "Google Drive not connected")
 
+    songs_folder_id = db_user.get("drive_songs_folder_id")
+    if not songs_folder_id:
+        raise HTTPException(400, "Drive folder structure not set up")
+
+    # Verify the file belongs to the user's HearBeat/Songs folder
+    if not await gdrive.verify_file_in_folder(drive_token, file_id, songs_folder_id):
+        raise HTTPException(403, "File is not in your HearBeat/Songs folder")
+
     try:
         file_bytes = await gdrive.download_file(drive_token, file_id)
         meta = await gdrive.get_file_metadata(drive_token, file_id)
@@ -836,6 +849,14 @@ async def drive_delete_file(
     drive_token = await gdrive._get_valid_token(db_user)
     if not drive_token:
         raise HTTPException(400, "Google Drive not connected")
+
+    songs_folder_id = db_user.get("drive_songs_folder_id")
+    if not songs_folder_id:
+        raise HTTPException(400, "Drive folder structure not set up")
+
+    # Verify the file belongs to the user's HearBeat/Songs folder
+    if not await gdrive.verify_file_in_folder(drive_token, file_id, songs_folder_id):
+        raise HTTPException(403, "File is not in your HearBeat/Songs folder")
 
     success = await gdrive.delete_file(drive_token, file_id)
     if not success:
@@ -898,6 +919,180 @@ async def list_songs(
     return resp
 
 
+@app.get("/drive/songs")
+async def list_drive_songs(
+    access_token: str | None = Cookie(None),
+    refresh_token: str | None = Cookie(None),
+) -> JSONResponse:
+    """List audio files in the user's Google Drive HearBeat/Songs/ folder."""
+    user, new_tokens = await coh.get_auth_user(access_token, refresh_token)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    db_user = await coh.get_user_by_cohesivity_id(user["id"])
+    if not db_user:
+        raise HTTPException(401, "User not found")
+
+    drive_token = await gdrive._get_valid_token(db_user)
+    if not drive_token:
+        raise HTTPException(400, "Google Drive not connected")
+
+    songs_folder_id = db_user.get("drive_songs_folder_id")
+    if not songs_folder_id:
+        raise HTTPException(400, "Drive folder structure not set up")
+
+    try:
+        from hearbeat.drive import _drive_request, DRIVE_API_BASE
+        resp = await _drive_request(
+            "GET",
+            f"{DRIVE_API_BASE}/files",
+            drive_token,
+            params={
+                "q": f"'{songs_folder_id}' in parents and trashed=false "
+                     "and (mimeType contains 'audio/' or mimeType='application/octet-stream')",
+                "fields": "files(id,name,size,mimeType,createdTime)",
+                "pageSize": "100",
+                "orderBy": "name",
+            },
+        )
+        resp.raise_for_status()
+        files = resp.json().get("files", [])
+    except Exception as e:
+        logger.error("Drive list songs failed: %s", e)
+        raise HTTPException(500, "Failed to list Drive songs")
+
+    resp = JSONResponse(content={"songs": files})
+    if new_tokens:
+        resp.set_cookie(
+            "access_token", new_tokens["access_token"],
+            httponly=True, secure=True, samesite="lax", path="/", max_age=3600,
+        )
+    return resp
+
+
+@app.post("/drive/analyze/{file_id:path}")
+async def analyze_drive_song(
+    file_id: str,
+    mode: str = Query("music", pattern="^(music|drumming)$"),
+    access_token: str | None = Cookie(None),
+    refresh_token: str | None = Cookie(None),
+) -> JSONResponse:
+    """Download a Drive file, analyze it, and save to the user's library."""
+    user, new_tokens = await coh.get_auth_user(access_token, refresh_token)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    db_user = await coh.get_user_by_cohesivity_id(user["id"])
+    if not db_user:
+        raise HTTPException(401, "User not found")
+
+    drive_token = await gdrive._get_valid_token(db_user)
+    if not drive_token:
+        raise HTTPException(400, "Google Drive not connected")
+
+    songs_folder_id = db_user.get("drive_songs_folder_id")
+    if not songs_folder_id:
+        raise HTTPException(400, "Drive folder structure not set up")
+
+    # Verify the file belongs to the user's HearBeat/Songs folder
+    if not await gdrive.verify_file_in_folder(drive_token, file_id, songs_folder_id):
+        raise HTTPException(403, "File is not in your HearBeat/Songs folder")
+
+    # Download from Drive
+    try:
+        file_bytes = await gdrive.download_file(drive_token, file_id)
+        meta = await gdrive.get_file_metadata(drive_token, file_id)
+        filename = meta["name"] if meta else "audio"
+    except Exception as e:
+        logger.error("Drive download for analysis failed: %s", e)
+        raise HTTPException(500, "Failed to download file from Drive")
+
+    # Compute hash
+    import hashlib
+    file_hash = hashlib.sha256(file_bytes).hexdigest()
+
+    # Check if already in library
+    existing = await coh.db_query(
+        "SELECT id FROM user_songs WHERE user_id = $1 AND file_hash = $2",
+        [db_user["id"], file_hash],
+    )
+
+    if existing:
+        # Already analyzed - just return the existing song
+        song_id = existing[0]["id"]
+        await coh.db_query(
+            "UPDATE user_songs SET last_played = NOW() WHERE id = $1",
+            [song_id],
+        )
+        resp = JSONResponse(content={"song_id": song_id, "status": "already_analyzed"})
+        if new_tokens:
+            resp.set_cookie(
+                "access_token", new_tokens["access_token"],
+                httponly=True, secure=True, samesite="lax", path="/", max_age=3600,
+            )
+        return resp
+
+    # Get duration
+    duration = None
+    try:
+        import io
+        import soundfile as sf
+        audio_data, sr = sf.read(io.BytesIO(file_bytes), dtype="float32")
+        duration = len(audio_data) / sr
+    except Exception:
+        pass
+
+    # Run analysis
+    import tempfile
+    from pathlib import Path
+    from hearbeat.pipeline import analyze_file as run_analysis
+
+    tmp_dir = Path(tempfile.mkdtemp())
+    tmp_path = tmp_dir / filename
+    try:
+        tmp_path.write_bytes(file_bytes)
+        result = run_analysis(
+            input_path=tmp_path,
+            output_dir=OUTPUT_DIR,
+            output_json=True,
+            mode=mode,
+        )
+    except Exception as e:
+        logger.error("Analysis failed for Drive file %s: %s", file_id, e)
+        raise HTTPException(500, f"Analysis failed: {e}")
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    # Save to library
+    rows = await coh.db_query(
+        """
+        INSERT INTO user_songs (user_id, filename, original_name, file_hash, file_size, duration_seconds, analysis_mode, drive_file_id, last_played)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+        RETURNING id
+        """,
+        [db_user["id"], filename, filename, file_hash, len(file_bytes), duration, mode, file_id],
+    )
+    song_id = rows[0]["id"]
+
+    # Save analysis result
+    analysis_json = result.model_dump(mode="json")
+    await coh.db_query(
+        """
+        INSERT INTO song_analysis (song_id, analysis_data, analysis_mode)
+        VALUES ($1, $2, $3)
+        """,
+        [song_id, json.dumps(analysis_json), mode],
+    )
+
+    resp = JSONResponse(content={"song_id": song_id, "status": "analyzed"})
+    if new_tokens:
+        resp.set_cookie(
+            "access_token", new_tokens["access_token"],
+            httponly=True, secure=True, samesite="lax", path="/", max_age=3600,
+        )
+    return resp
+
+
 @app.post("/library/songs")
 async def save_song(
     file: UploadFile = File(...),
@@ -930,6 +1125,16 @@ async def save_song(
             [song_id],
         )
     else:
+        # Require Drive connection for authenticated persistent library saves
+        drive_token = await gdrive._get_valid_token(db_user)
+        songs_folder_id = db_user.get("drive_songs_folder_id") if db_user else None
+        if not drive_token or not songs_folder_id:
+            raise HTTPException(
+                400,
+                "Connect Google Drive to save songs to your library. "
+                "Songs are stored in your Google Drive under HearBeat/Songs/.",
+            )
+
         # Get duration
         duration = None
         try:
@@ -940,21 +1145,19 @@ async def save_song(
         except Exception:
             pass
 
-        # Upload to Google Drive if connected
-        drive_file_id = None
-        drive_token = await gdrive._get_valid_token(db_user)
-        if drive_token and db_user.get("drive_songs_folder_id"):
-            try:
-                mime_type = file.content_type or "application/octet-stream"
-                drive_file_id = await gdrive.upload_file(
-                    drive_token,
-                    db_user["drive_songs_folder_id"],
-                    file.filename or "audio",
-                    mime_type,
-                    content,
-                )
-            except Exception as e:
-                logger.warning("Drive upload failed, saving locally only: %s", e)
+        # Upload to Google Drive (required)
+        try:
+            mime_type = file.content_type or "application/octet-stream"
+            drive_file_id = await gdrive.upload_file(
+                drive_token,
+                songs_folder_id,
+                file.filename or "audio",
+                mime_type,
+                content,
+            )
+        except Exception as e:
+            logger.error("Drive upload failed: %s", e)
+            raise HTTPException(500, "Failed to upload to Google Drive")
 
         rows = await coh.db_query(
             """
@@ -1026,6 +1229,158 @@ async def mark_song_played(
         [song_id, db_user["id"]],
     )
     return JSONResponse(content={"status": "ok"})
+
+
+@app.get("/library/songs/{song_id}/analysis")
+async def get_library_song_analysis(
+    song_id: int,
+    access_token: str | None = Cookie(None),
+    refresh_token: str | None = Cookie(None),
+) -> JSONResponse:
+    """Retrieve saved analysis data for a library song."""
+    user, new_tokens = await coh.get_auth_user(access_token, refresh_token)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    db_user = await coh.get_user_by_cohesivity_id(user["id"])
+    if not db_user:
+        raise HTTPException(404, "User not found")
+
+    rows = await coh.db_query(
+        """
+        SELECT s.id, s.original_name, s.file_hash, s.duration_seconds, s.analysis_mode,
+               s.drive_file_id, a.analysis_data
+        FROM user_songs s
+        LEFT JOIN song_analysis a ON a.song_id = s.id
+        WHERE s.id = $1 AND s.user_id = $2
+        """,
+        [song_id, db_user["id"]],
+    )
+    if not rows:
+        raise HTTPException(404, "Song not found")
+
+    row = rows[0]
+    if not row.get("analysis_data"):
+        raise HTTPException(404, "No analysis data for this song")
+
+    resp = JSONResponse(content={
+        "song_id": row["id"],
+        "filename": row["original_name"],
+        "file_hash": row["file_hash"],
+        "duration_seconds": row["duration_seconds"],
+        "analysis_mode": row["analysis_mode"],
+        "drive_file_id": row.get("drive_file_id"),
+        "analysis": row["analysis_data"],
+    })
+    if new_tokens:
+        resp.set_cookie(
+            "access_token", new_tokens["access_token"],
+            httponly=True, secure=True, samesite="lax", path="/", max_age=3600,
+        )
+    return resp
+
+
+@app.post("/library/songs/{song_id}/reprocess")
+async def reprocess_library_song(
+    song_id: int,
+    mode: str | None = Query(None, pattern="^(music|drumming)$"),
+    access_token: str | None = Cookie(None),
+    refresh_token: str | None = Cookie(None),
+) -> JSONResponse:
+    """Reprocess a library song: re-download from Drive (if available) and re-analyze."""
+    user, new_tokens = await coh.get_auth_user(access_token, refresh_token)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    db_user = await coh.get_user_by_cohesivity_id(user["id"])
+    if not db_user:
+        raise HTTPException(404, "User not found")
+
+    # Get song
+    rows = await coh.db_query(
+        "SELECT id, original_name, file_hash, file_size, drive_file_id, analysis_mode FROM user_songs WHERE id = $1 AND user_id = $2",
+        [song_id, db_user["id"]],
+    )
+    if not rows:
+        raise HTTPException(404, "Song not found")
+
+    song = rows[0]
+    analysis_mode = mode or song["analysis_mode"]
+
+    # Get audio bytes: prefer Drive, fallback to original_name
+    file_bytes = None
+    filename = song["original_name"]
+
+    if song.get("drive_file_id"):
+        drive_token = await gdrive._get_valid_token(db_user)
+        if drive_token:
+            try:
+                file_bytes = await gdrive.download_file(drive_token, song["drive_file_id"])
+                meta = await gdrive.get_file_metadata(drive_token, song["drive_file_id"])
+                if meta:
+                    filename = meta["name"]
+            except Exception as e:
+                logger.warning("Drive download for reprocess failed: %s", e)
+
+    if file_bytes is None:
+        raise HTTPException(400, "Audio file not available for reprocessing (Drive not connected or file removed)")
+
+    # Run analysis
+    import hashlib
+    from hearbeat.pipeline import analyze_file as run_analysis
+
+    tmp_dir = Path(tempfile.mkdtemp())
+    tmp_path = tmp_dir / filename
+    try:
+        tmp_path.write_bytes(file_bytes)
+        result = run_analysis(
+            input_path=tmp_path,
+            output_dir=OUTPUT_DIR,
+            output_json=True,
+            mode=analysis_mode,
+        )
+    except Exception as e:
+        logger.error("Reanalysis failed for song %s: %s", song_id, e)
+        raise HTTPException(500, f"Reanalysis failed: {e}")
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    # Update hash and duration
+    new_hash = hashlib.sha256(file_bytes).hexdigest()
+    import io
+    import soundfile as sf
+    try:
+        audio_data, sr = sf.read(io.BytesIO(file_bytes), dtype="float32")
+        new_duration = len(audio_data) / sr
+    except Exception:
+        new_duration = song.get("duration_seconds")
+
+    await coh.db_query(
+        "UPDATE user_songs SET file_hash = $1, duration_seconds = $2, analysis_mode = $3 WHERE id = $4",
+        [new_hash, new_duration, analysis_mode, song_id],
+    )
+
+    # Replace analysis
+    analysis_json = result.model_dump(mode="json")
+    await coh.db_query(
+        "DELETE FROM song_analysis WHERE song_id = $1",
+        [song_id],
+    )
+    await coh.db_query(
+        """
+        INSERT INTO song_analysis (song_id, analysis_data, analysis_mode)
+        VALUES ($1, $2, $3)
+        """,
+        [song_id, json.dumps(analysis_json), analysis_mode],
+    )
+
+    resp = JSONResponse(content={"song_id": song_id, "status": "reanalyzed"})
+    if new_tokens:
+        resp.set_cookie(
+            "access_token", new_tokens["access_token"],
+            httponly=True, secure=True, samesite="lax", path="/", max_age=3600,
+        )
+    return resp
 
 
 # --- Presets library endpoints ---
