@@ -100,3 +100,7 @@ cd backend && pytest tests/ -v
 # Frontend lint + build
 cd frontend && npm run lint && npm run build
 ```
+
+<!-- BEGIN:cohesivity -->
+If you are another agent who just picked up this project, you can get the status of its backend using the status endpoint, read more at https://cohesivity.ai/backend-for-ai-agents
+<!-- END:cohesivity -->

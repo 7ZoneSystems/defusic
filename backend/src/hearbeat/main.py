@@ -657,6 +657,193 @@ async def auth_logout(
     return resp
 
 
+# --- Google Drive endpoints ---
+
+from hearbeat import drive as gdrive
+
+
+@app.get("/drive/status")
+async def drive_status(
+    access_token: str | None = Cookie(None),
+    refresh_token: str | None = Cookie(None),
+) -> JSONResponse:
+    """Check if Google Drive is connected for the authenticated user."""
+    user, new_tokens = await coh.get_auth_user(access_token, refresh_token)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    db_user = await coh.get_user_by_cohesivity_id(user["id"])
+    if not db_user:
+        raise HTTPException(401, "User not found")
+
+    connected = bool(db_user.get("drive_songs_folder_id"))
+    return JSONResponse({
+        "connected": connected,
+        "folder_id": db_user.get("drive_folder_id"),
+        "songs_folder_id": db_user.get("drive_songs_folder_id"),
+    })
+
+
+@app.post("/drive/exchange")
+async def drive_exchange(
+    code: str,
+    access_token: str | None = Cookie(None),
+    refresh_token: str | None = Cookie(None),
+) -> JSONResponse:
+    """Exchange Google OAuth code for Drive tokens and set up folder structure."""
+    user, new_tokens = await coh.get_auth_user(access_token, refresh_token)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    db_user = await coh.get_user_by_cohesivity_id(user["id"])
+    if not db_user:
+        raise HTTPException(401, "User not found")
+
+    # Exchange code for tokens
+    try:
+        token_data = await gdrive.exchange_code(code)
+    except Exception as e:
+        logger.error("Drive token exchange failed: %s", e)
+        raise HTTPException(400, "Invalid authorization code")
+
+    drive_access = token_data["access_token"]
+    drive_refresh = token_data.get("refresh_token", "")
+    expires_in = token_data.get("expires_in", 3600)
+
+    # Store tokens
+    await gdrive._store_tokens(db_user["id"], drive_access, drive_refresh, expires_in)
+
+    # Ensure folder structure
+    try:
+        hb_id, songs_id = await gdrive.ensure_folder_structure(drive_access)
+        await gdrive.save_folder_ids(db_user["id"], hb_id, songs_id)
+    except Exception as e:
+        logger.error("Drive folder setup failed: %s", e)
+        raise HTTPException(500, "Failed to set up Drive folders")
+
+    return JSONResponse({
+        "status": "connected",
+        "folder_id": hb_id,
+        "songs_folder_id": songs_id,
+    })
+
+
+@app.post("/drive/disconnect")
+async def drive_disconnect(
+    access_token: str | None = Cookie(None),
+    refresh_token: str | None = Cookie(None),
+) -> JSONResponse:
+    """Disconnect Google Drive without deleting files."""
+    user, new_tokens = await coh.get_auth_user(access_token, refresh_token)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    db_user = await coh.get_user_by_cohesivity_id(user["id"])
+    if not db_user:
+        raise HTTPException(401, "User not found")
+
+    await gdrive.disconnect_drive(db_user["id"])
+    return JSONResponse({"status": "disconnected"})
+
+
+@app.post("/drive/upload")
+async def drive_upload(
+    file: UploadFile = File(...),
+    access_token: str | None = Cookie(None),
+    refresh_token: str | None = Cookie(None),
+) -> JSONResponse:
+    """Upload an audio file to the user's Google Drive HearBeat/Songs/ folder."""
+    user, new_tokens = await coh.get_auth_user(access_token, refresh_token)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    db_user = await coh.get_user_by_cohesivity_id(user["id"])
+    if not db_user:
+        raise HTTPException(401, "User not found")
+
+    drive_token = await gdrive._get_valid_token(db_user)
+    if not drive_token:
+        raise HTTPException(400, "Google Drive not connected")
+
+    songs_folder_id = db_user.get("drive_songs_folder_id")
+    if not songs_folder_id:
+        raise HTTPException(400, "Drive folder structure not set up")
+
+    file_bytes = await file.read()
+    mime_type = file.content_type or "application/octet-stream"
+
+    try:
+        file_id = await gdrive.upload_file(
+            drive_token, songs_folder_id, file.filename or "audio", mime_type, file_bytes
+        )
+    except Exception as e:
+        logger.error("Drive upload failed: %s", e)
+        raise HTTPException(500, "Failed to upload to Google Drive")
+
+    return JSONResponse({"drive_file_id": file_id})
+
+
+@app.get("/drive/download/{file_id:path}")
+async def drive_download(
+    file_id: str,
+    access_token: str | None = Cookie(None),
+    refresh_token: str | None = Cookie(None),
+) -> Response:
+    """Download a file from the user's Google Drive."""
+    user, new_tokens = await coh.get_auth_user(access_token, refresh_token)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    db_user = await coh.get_user_by_cohesivity_id(user["id"])
+    if not db_user:
+        raise HTTPException(401, "User not found")
+
+    drive_token = await gdrive._get_valid_token(db_user)
+    if not drive_token:
+        raise HTTPException(400, "Google Drive not connected")
+
+    try:
+        file_bytes = await gdrive.download_file(drive_token, file_id)
+        meta = await gdrive.get_file_metadata(drive_token, file_id)
+        filename = meta["name"] if meta else "download"
+        mime = meta.get("mimeType", "application/octet-stream") if meta else "application/octet-stream"
+    except Exception as e:
+        logger.error("Drive download failed: %s", e)
+        raise HTTPException(500, "Failed to download from Google Drive")
+
+    return Response(
+        content=file_bytes,
+        media_type=mime,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.delete("/drive/file/{file_id:path}")
+async def drive_delete_file(
+    file_id: str,
+    access_token: str | None = Cookie(None),
+    refresh_token: str | None = Cookie(None),
+) -> JSONResponse:
+    """Permanently delete a file from the user's Google Drive."""
+    user, new_tokens = await coh.get_auth_user(access_token, refresh_token)
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+
+    db_user = await coh.get_user_by_cohesivity_id(user["id"])
+    if not db_user:
+        raise HTTPException(401, "User not found")
+
+    drive_token = await gdrive._get_valid_token(db_user)
+    if not drive_token:
+        raise HTTPException(400, "Google Drive not connected")
+
+    success = await gdrive.delete_file(drive_token, file_id)
+    if not success:
+        raise HTTPException(500, "Failed to delete file from Drive")
+
+    return JSONResponse({"status": "deleted", "drive_file_id": file_id})
+
+
 # --- Library endpoints ---
 
 
@@ -677,7 +864,7 @@ async def list_songs(
     rows = await coh.db_query(
         """
         SELECT s.id, s.original_name, s.file_hash, s.file_size, s.duration_seconds,
-               s.analysis_mode, s.created_at, s.last_played,
+               s.analysis_mode, s.drive_file_id, s.created_at, s.last_played,
                a.id as analysis_id, a.created_at as analysis_created_at
         FROM user_songs s
         LEFT JOIN song_analysis a ON a.song_id = s.id
@@ -696,6 +883,7 @@ async def list_songs(
             "file_size": row["file_size"],
             "duration_seconds": row["duration_seconds"],
             "analysis_mode": row["analysis_mode"],
+            "drive_file_id": row.get("drive_file_id"),
             "has_analysis": row["analysis_id"] is not None,
             "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
             "last_played": row["last_played"].isoformat() if row.get("last_played") else None,
@@ -717,7 +905,7 @@ async def save_song(
     access_token: str | None = Cookie(None),
     refresh_token: str | None = Cookie(None),
 ) -> JSONResponse:
-    """Save an uploaded song to the user's library."""
+    """Save an uploaded song to the user's library (metadata) and Google Drive (audio file)."""
     user, new_tokens = await coh.get_auth_user(access_token, refresh_token)
     if not user:
         raise HTTPException(401, "Not authenticated")
@@ -731,7 +919,7 @@ async def save_song(
     file_hash = hashlib.sha256(content).hexdigest()
 
     existing = await coh.db_query(
-        "SELECT id FROM user_songs WHERE user_id = $1 AND file_hash = $2",
+        "SELECT id, drive_file_id FROM user_songs WHERE user_id = $1 AND file_hash = $2",
         [db_user["id"], file_hash],
     )
 
@@ -752,17 +940,33 @@ async def save_song(
         except Exception:
             pass
 
+        # Upload to Google Drive if connected
+        drive_file_id = None
+        drive_token = await gdrive._get_valid_token(db_user)
+        if drive_token and db_user.get("drive_songs_folder_id"):
+            try:
+                mime_type = file.content_type or "application/octet-stream"
+                drive_file_id = await gdrive.upload_file(
+                    drive_token,
+                    db_user["drive_songs_folder_id"],
+                    file.filename or "audio",
+                    mime_type,
+                    content,
+                )
+            except Exception as e:
+                logger.warning("Drive upload failed, saving locally only: %s", e)
+
         rows = await coh.db_query(
             """
-            INSERT INTO user_songs (user_id, filename, original_name, file_hash, file_size, duration_seconds, analysis_mode, last_played)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+            INSERT INTO user_songs (user_id, filename, original_name, file_hash, file_size, duration_seconds, analysis_mode, drive_file_id, last_played)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
             RETURNING id
             """,
-            [db_user["id"], file.filename, file.filename, file_hash, len(content), duration, mode],
+            [db_user["id"], file.filename, file.filename, file_hash, len(content), duration, mode, drive_file_id],
         )
         song_id = rows[0]["id"]
 
-    resp = JSONResponse(content={"song_id": song_id, "file_hash": file_hash})
+    resp = JSONResponse(content={"song_id": song_id, "file_hash": file_hash, "drive_file_id": drive_file_id if not existing else existing[0].get("drive_file_id")})
     if new_tokens:
         resp.set_cookie(
             "access_token", new_tokens["access_token"],

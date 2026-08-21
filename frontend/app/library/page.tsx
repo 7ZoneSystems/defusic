@@ -1,15 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
+import { useGoogleDrive } from "@/lib/drive";
 import {
   deleteLibrarySong,
   fetchLibrarySongs,
+  getDriveDownloadUrl,
+  deleteDriveFile,
   LibrarySong,
 } from "@/lib/api";
+import DriveConnect from "@/components/DriveConnect";
+import { HardDrive, Download, Trash2 } from "lucide-react";
 
-export default function LibraryPage() {
+function LibraryContent() {
   const { user, loading: authLoading, login } = useAuth();
+  const { connected: driveConnected } = useGoogleDrive();
   const [songs, setSongs] = useState<LibrarySong[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -28,12 +34,25 @@ export default function LibraryPage() {
     }
   }, [authLoading, user]);
 
-  const handleDelete = async (songId: number) => {
+  const handleDelete = async (song: LibrarySong) => {
     try {
-      await deleteLibrarySong(songId);
-      setSongs((prev) => prev.filter((s) => s.id !== songId));
+      await deleteLibrarySong(song.id);
+      setSongs((prev) => prev.filter((s) => s.id !== song.id));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to delete");
+    }
+  };
+
+  const handleDeleteFromDrive = async (song: LibrarySong) => {
+    if (!song.drive_file_id) return;
+    if (!window.confirm(`Delete "${song.filename}" from your Google Drive? This cannot be undone.`)) return;
+    try {
+      await deleteDriveFile(song.drive_file_id);
+      setSongs((prev) =>
+        prev.map((s) => (s.id === song.id ? { ...s, drive_file_id: null } : s))
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to delete from Drive");
     }
   };
 
@@ -66,12 +85,22 @@ export default function LibraryPage() {
     <div className="min-h-screen p-6 max-w-4xl mx-auto">
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-2xl font-semibold">Your Library</h1>
-        <span className="text-sm text-muted-foreground">{user.email}</span>
+        <div className="flex items-center gap-4">
+          <DriveConnect />
+          <span className="text-sm text-muted-foreground">{user.email}</span>
+        </div>
       </div>
 
       {error && (
         <div className="mb-4 p-3 rounded bg-destructive/10 text-destructive text-sm">
           {error}
+        </div>
+      )}
+
+      {driveConnected && (
+        <div className="mb-4 p-3 rounded bg-muted flex items-center gap-2 text-sm">
+          <HardDrive size={14} />
+          <span>Songs are saved to your Google Drive under HearBeat/Songs/</span>
         </div>
       )}
 
@@ -102,6 +131,11 @@ export default function LibraryPage() {
                     </span>
                   )}
                   {song.has_analysis && <span className="text-green-600">Analyzed</span>}
+                  {song.drive_file_id && (
+                    <span className="flex items-center gap-1">
+                      <HardDrive size={10} /> Saved to Drive
+                    </span>
+                  )}
                   {song.last_played && (
                     <span>
                       Last played {new Date(song.last_played).toLocaleDateString()}
@@ -109,16 +143,48 @@ export default function LibraryPage() {
                   )}
                 </div>
               </div>
-              <button
-                onClick={() => handleDelete(song.id)}
-                className="ml-4 px-3 py-1 text-xs text-destructive hover:bg-destructive/10 rounded transition-colors"
-              >
-                Delete
-              </button>
+              <div className="flex items-center gap-2 ml-4">
+                {song.drive_file_id && (
+                  <a
+                    href={getDriveDownloadUrl(song.drive_file_id)}
+                    className="p-1.5 text-muted-foreground hover:text-foreground rounded transition-colors"
+                    title="Download from Drive"
+                  >
+                    <Download size={14} />
+                  </a>
+                )}
+                {song.drive_file_id && (
+                  <button
+                    onClick={() => handleDeleteFromDrive(song)}
+                    className="p-1.5 text-muted-foreground hover:text-orange-500 rounded transition-colors"
+                    title="Delete from Drive only (keeps in library)"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
+                <button
+                  onClick={() => handleDelete(song)}
+                  className="px-3 py-1 text-xs text-destructive hover:bg-destructive/10 rounded transition-colors"
+                >
+                  Remove
+                </button>
+              </div>
             </div>
           ))}
         </div>
       )}
     </div>
+  );
+}
+
+export default function LibraryPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-muted-foreground">Loading...</p>
+      </div>
+    }>
+      <LibraryContent />
+    </Suspense>
   );
 }

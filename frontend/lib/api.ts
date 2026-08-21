@@ -94,6 +94,7 @@ export interface LibrarySong {
   file_size: number;
   duration_seconds: number | null;
   analysis_mode: string;
+  drive_file_id: string | null;
   has_analysis: boolean;
   created_at: string | null;
   last_played: string | null;
@@ -180,4 +181,63 @@ export async function deleteLibraryPreset(presetId: number): Promise<void> {
     credentials: "include",
   });
   if (!res.ok) throw new Error("Failed to delete preset");
+}
+
+// --- Google Drive endpoints ---
+
+export async function getDriveStatus(): Promise<{
+  connected: boolean;
+  folder_id: string | null;
+  songs_folder_id: string | null;
+}> {
+  const res = await fetch(`${API_BASE}/drive/status`, { credentials: "include" });
+  if (!res.ok) throw new Error("Failed to check Drive status");
+  return res.json();
+}
+
+export async function exchangeDriveCode(code: string): Promise<{
+  status: string;
+  folder_id: string;
+  songs_folder_id: string;
+}> {
+  const res = await fetch(`${API_BASE}/drive/exchange?code=${encodeURIComponent(code)}`, {
+    method: "POST",
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error("Failed to exchange Drive code");
+  return res.json();
+}
+
+export async function disconnectDrive(): Promise<{ status: string }> {
+  const res = await fetch(`${API_BASE}/drive/disconnect`, {
+    method: "POST",
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error("Failed to disconnect Drive");
+  return res.json();
+}
+
+export async function uploadToDrive(file: File): Promise<{ drive_file_id: string }> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${API_BASE}/drive/upload`, {
+    method: "POST",
+    body: form,
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error("Failed to upload to Drive");
+  return res.json();
+}
+
+export function getDriveDownloadUrl(fileId: string): string {
+  return `${API_BASE}/drive/download/${fileId}`;
+}
+
+export async function deleteDriveFile(fileId: string): Promise<{ status: string }> {
+  const res = await fetch(`${API_BASE}/drive/file/${fileId}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error("Failed to delete from Drive");
+  return res.json();
 }
