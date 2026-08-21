@@ -140,15 +140,20 @@ export async function saveSongAnalysis(
   mode: string = "music",
   filename: string = ""
 ): Promise<{ song_id: number; file_hash: string; status: string }> {
-  const params = new URLSearchParams({ mode, filename, analysis_json: analysisJson });
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`${API_BASE}/library/songs/save-analysis?${params}`, {
+  form.append("analysis_json", analysisJson);
+  form.append("mode", mode);
+  form.append("filename", filename || file.name);
+  const res = await fetch(`${API_BASE}/library/songs/save-analysis`, {
     method: "POST",
     credentials: "include",
     body: form,
   });
-  if (!res.ok) throw new Error("Failed to save song");
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Failed to save song");
+  }
   return res.json();
 }
 

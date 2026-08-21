@@ -12,7 +12,7 @@ from pathlib import Path
 
 import httpx
 import numpy as np
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile, Cookie, Request
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile, Cookie, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 
@@ -1255,9 +1255,12 @@ async def save_song(
 @app.post("/library/songs/save-analysis")
 async def save_song_with_analysis(
     file: UploadFile = File(...),
-    analysis_json: str = Query(..., description="JSON-serialized analysis result"),
-    mode: str = Query("music", pattern="^(music|drumming)$"),
-    filename: str = Query("", description="Original filename"),
+    analysis_json: str | None = Form(None),
+    analysis_json_query: str | None = Query(None, alias="analysis_json"),
+    mode: str = Form("music"),
+    mode_query: str | None = Query(None, alias="mode"),
+    filename: str = Form(""),
+    filename_query: str | None = Query(None, alias="filename"),
     access_token: str | None = Cookie(None),
     refresh_token: str | None = Cookie(None),
 ) -> JSONResponse:
@@ -1266,6 +1269,12 @@ async def save_song_with_analysis(
     Does NOT re-run analysis. Uses the provided analysis JSON directly.
     Uploads audio to Drive for persistent storage.
     """
+    effective_analysis_json = analysis_json or analysis_json_query
+    if not effective_analysis_json:
+        raise HTTPException(400, "Missing analysis JSON")
+    effective_mode = mode_query or mode or "music"
+    effective_filename = filename_query or filename or file.filename or "audio"
+
     user, new_tokens = await coh.get_auth_user(access_token, refresh_token)
     if not user:
         raise HTTPException(401, "Not authenticated")
@@ -1322,7 +1331,7 @@ async def save_song_with_analysis(
         mime_type = file.content_type or "application/octet-stream"
         drive_file_id = await gdrive.upload_file(
             drive_token, songs_folder_id,
-            filename or file.filename or "audio", mime_type, content,
+            effective_filename, mime_type, content,
         )
     except Exception as e:
         logger.error("Drive upload failed: %s", e)
@@ -1335,13 +1344,13 @@ async def save_song_with_analysis(
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
         RETURNING id
         """,
-        [db_user["id"], filename or file.filename, filename or file.filename, file_hash, len(content), duration, mode, drive_file_id],
+        [db_user["id"], effective_filename, effective_filename, file_hash, len(content), duration, effective_mode, drive_file_id],
     )
     song_id = rows[0]["id"]
 
     # Save analysis (pre-existing, do NOT re-analyze)
     try:
-        analysis_data = json.loads(analysis_json)
+        analysis_data = json.loads(effective_analysis_json)
     except json.JSONDecodeError:
         raise HTTPException(400, "Invalid analysis JSON")
 

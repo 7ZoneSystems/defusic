@@ -324,7 +324,11 @@ function HomeContent() {
   }, [hapticController]);
 
   const handleSave = useCallback(async () => {
-    if (!selectedFile || !result || saveState === 'saving') return;
+    let fileToSave = selectedFile;
+    if (!fileToSave) {
+      fileToSave = await restoreFile().catch(() => null);
+    }
+    if (!fileToSave || !result || saveState === 'saving') return;
     if (!user) {
       window.location.href = `${API_BASE}/auth/login?return_to=${encodeURIComponent(window.location.pathname + window.location.search)}`;
       return;
@@ -332,13 +336,14 @@ function HomeContent() {
     setSaveState('saving');
     try {
       await saveSongAnalysis(
-        selectedFile,
+        fileToSave,
         JSON.stringify(result),
         mode,
-        selectedFile.name,
+        fileToSave.name,
       );
       setSaveState('saved');
-    } catch {
+    } catch (err) {
+      console.error('Save failed:', err);
       setSaveState('idle');
     }
   }, [selectedFile, result, mode, saveState, user]);

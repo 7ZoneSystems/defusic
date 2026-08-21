@@ -330,6 +330,39 @@ class TestKeepSession:
 
 
 class TestSaveFlow:
+    def test_save_multipart_form_data(self, client):
+        """analysis_json sent in multipart form data body works without query params."""
+        user = _authenticated_user()
+        db_user = {
+            "id": 42,
+            "cohesivity_user_id": 1,
+            "drive_songs_folder_id": "songs_abc",
+            "drive_access_token": "encrypted_tok",
+        }
+        analysis = json.dumps({"tempo": 120, "beats": []})
+        with (
+            patch("hearbeat.main.coh.get_auth_user", new_callable=AsyncMock, return_value=(user, None)),
+            patch("hearbeat.main.coh.get_user_by_cohesivity_id", new_callable=AsyncMock, return_value=db_user),
+            patch("hearbeat.main.coh.upsert_user", new_callable=AsyncMock, return_value=db_user),
+            patch("hearbeat.main.coh.db_query", new_callable=AsyncMock, side_effect=[
+                [],  # existing song check
+                [{"id": 88}],  # insert song
+                [],  # insert analysis
+            ]),
+            patch("hearbeat.main.gdrive._get_valid_token", new_callable=AsyncMock, return_value="drive_tok"),
+            patch("hearbeat.main.gdrive.upload_file", new_callable=AsyncMock, return_value="drive_file_99"),
+        ):
+            resp = client.post(
+                "/library/songs/save-analysis",
+                data={"analysis_json": analysis, "mode": "music", "filename": "form_track.mp3"},
+                files={"file": ("form_track.mp3", b"audio_bytes", "audio/mpeg")},
+                cookies={"access_token": "valid", "refresh_token": "valid"},
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["status"] == "saved"
+            assert data["song_id"] == 88
+
     def test_save_requires_auth(self, client):
         resp = client.post(
             "/library/songs/save-analysis?mode=music&filename=test.mp3&analysis_json={}",
