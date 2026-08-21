@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import Header from '@/components/Header';
+import Footer from '@/components/Footer';
 import TrackUpload from '@/components/TrackUpload';
 import ModeSelector from '@/components/ModeSelector';
 import DrumMetricsStrip from '@/components/DrumMetricsStrip';
@@ -579,6 +580,7 @@ export default function Home() {
           </div>
         )}
       </main>
+      <Footer />
     </div>
   );
 }
