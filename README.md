@@ -6,9 +6,24 @@
 
 <p align="center"><strong>Feel the rhythm. See the pattern.</strong></p>
 
-HearBeat is an audio analysis and haptic-translation web app for people who are deaf or hard of hearing, musicians, and drummers. It turns the rhythmic structure of an uploaded track into visual events, diagnostic audio, and browser haptic feedback so beats can be explored through more than hearing alone.
+<p align="center">
+  <img src="https://img.shields.io/badge/Next.js-000000?style=flat&logo=next.js&logoColor=white" alt="Next.js">
+  <img src="https://img.shields.io/badge/React-20232A?style=flat&logo=react&logoColor=61DAFB" alt="React">
+  <img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat&logo=typescript&logoColor=white" alt="TypeScript">
+  <img src="https://img.shields.io/badge/Turbopack-000000?style=flat&logo=turbopack&logoColor=white" alt="Turbopack">
+  <img src="https://img.shields.io/badge/Node.js-339933?style=flat&logo=node.js&logoColor=white" alt="Node.js">
+  <img src="https://img.shields.io/badge/FastAPI-005571?style=flat&logo=fastapi&logoColor=white" alt="FastAPI">
+  <img src="https://img.shields.io/badge/Python-3776AB?style=flat&logo=python&logoColor=white" alt="Python">
+  <img src="https://img.shields.io/badge/Demucs-4B0082?style=flat&logo=meta&logoColor=white" alt="Demucs">
+  <img src="https://img.shields.io/badge/Essentia-8A2BE2?style=flat" alt="Essentia">
+  <img src="https://img.shields.io/badge/PyTorch-EE4C2C?style=flat&logo=pytorch&logoColor=white" alt="PyTorch">
+  <img src="https://img.shields.io/badge/FFmpeg-007808?style=flat&logo=ffmpeg&logoColor=white" alt="FFmpeg">
+  <img src="https://img.shields.io/badge/Google_Drive-4285F4?style=flat&logo=googledrive&logoColor=white" alt="Google Drive">
+  <img src="https://img.shields.io/badge/Vercel-000000?style=flat&logo=vercel&logoColor=white" alt="Vercel">
+  <img src="https://img.shields.io/badge/Google_Cloud-4285F4?style=flat&logo=googlecloud&logoColor=white" alt="Google Cloud">
+</p>
 
-`#Next.js` `#React` `#TypeScript` `#FastAPI` `#Python` `#Demucs` `#Essentia` `#PyTorch` `#GoogleDrive` `#Vercel` `#GoogleCloud`
+HearBeat is an audio analysis and haptic-translation web app for people who are deaf or hard of hearing, musicians, and drummers. It turns the rhythmic structure of an uploaded track into visual events, diagnostic audio, and browser haptic feedback so beats can be explored through more than hearing alone.
 
 ## What Is Built
 
