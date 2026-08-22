@@ -1,74 +1,66 @@
 # HearBeat
 
-Music bass/beat/drum analysis engine with haptic feedback for hearing-impaired musicians.
+<p align="center">
+  <img src="image.png" alt="HearBeat icon" width="120">
+</p>
 
-```
-hearbeat/
-  backend/    Python analysis engine (FastAPI + Essentia + Demucs)
-  frontend/   Next.js visualization workspace
-  docs/       Runtime documentation
-```
+<p align="center"><strong>Feel the rhythm. See the pattern.</strong></p>
+
+HearBeat is an audio analysis and haptic-translation web app for people who are deaf or hard of hearing, musicians, and drummers. It turns the rhythmic structure of an uploaded track into visual events, diagnostic audio, and browser haptic feedback so beats can be explored through more than hearing alone.
+
+`#Next.js` `#React` `#TypeScript` `#FastAPI` `#Python` `#Demucs` `#Essentia` `#PyTorch` `#GoogleDrive` `#Vercel` `#GoogleCloud`
+
+## What Is Built
+
+- Upload supported audio and analyze it in **Music** or **Drumming** mode.
+- Detect beats, BPM, bass events, drum onsets, and classified kick, snare, and hi-hat events.
+- Separate bass, drums, vocals, and other stems with Demucs, then combine model output with signal-processing analysis.
+- Explore waveforms, timelines, event inspectors, drum patterns, metrics, and diagnostic/click-track audio.
+- Map detected events to a timed haptic timeline and play it alongside the original track where the browser supports vibration.
+- Sign in with Google, connect Google Drive, save songs and analysis metadata, manage a library, and save haptic presets.
+- Cache the selected local file in browser IndexedDB while the page is active so a file-selection interruption does not immediately discard it.
+
+## Scope And Limitations
+
+This is a working prototype with a real analysis pipeline which can be also run locally and hosted .
+
+| Area | Current status |
+| --- | --- |
+| Audio analysis | Built: FFmpeg extraction, Essentia beat/onset analysis, Demucs stem separation, NumPy/SciPy feature processing, and mode-specific event fusion. |
+| Web experience | Built: Next.js interface, upload flow, playback, visualizations, drumming view, haptic controls, library UI, and theme switching. |
+| Google auth and Drive | Implemented through the backend integration; requires configured Cohesivity and Google credentials. |
+| Haptics | Browser vibration is used where supported. Desktop feedback is a mock driver, and iOS Safari does not provide the required Vibration API. |
+| Analysis jobs | Job metadata and lookup are stored in backend process memory. Generated JSON/audio artifacts and uploaded originals are written under `OUTPUT_DIR`; lookup is not durable across restarts or multiple workers. |
+| Tests | Backend unit/component tests exist. 
 
 ## Architecture
 
-```
-Browser (Next.js)
+```text
+Next.js + React browser
     |
+    | REST API
     v
-Vercel (reverse proxy)
+FastAPI backend
+    +-- FFmpeg       decoding and normalization
+    +-- Essentia     beat and onset detection
+    +-- Demucs       four-stem source separation
+    +-- PyTorch      model runtime
+    +-- NumPy/SciPy  filtering, envelopes, RMS, and spectral features
     |
-    v
-GCP Backend (FastAPI)
-    +-- FFmpeg (audio extraction)
-    +-- Essentia (beat detection)
-    +-- Demucs (stem separation)
-    +-- NumPy/SciPy (signal processing)
-    |
-    +---> Cohesivity (auth + database infrastructure)
-    |
-    +---> Google Drive (user-owned audio storage, optional)
+    +-- Cohesivity   authentication and database integration
+    +-- Google Drive optional user-owned audio storage
 ```
 
-### Data Flow
+The frontend runs as a Next.js app and calls the FastAPI service through `NEXT_PUBLIC_API_URL`. The backend returns structured analysis JSON and generates audio diagnostics, waveforms, click tracks, and haptic timelines. Authenticated library records and saved audio use the configured Cohesivity and Google Drive integrations; anonymous analysis is indexed by the backend process and rendered in the browser, with generated artifacts written under `OUTPUT_DIR`.
 
-**Anonymous users (no account):**
-```
-Audio file
-    |
-    v
-Browser IndexedDB (temporary local cache, single file)
-    |
-    v
-Backend analysis (processed in memory, not stored)
-    |
-    v
-Results returned to browser
-```
+## Local Setup
 
-**Authenticated users (with Google account):**
-```
-Audio file
-    |
-    v
-Backend analysis
-    |
-    v
-User's Google Drive (HearBeat/Songs/ folder)  <-- saved audio
-    |
-    v
-Cohesivity Postgres (metadata, analysis refs, presets)
-```
+### Prerequisites
 
-### What Gets Stored Where
-
-| Storage | Contents | Lifetime |
-|---------|----------|----------|
-| Browser IndexedDB | Current audio file (single) | Until page reload / new file selected |
-| Google Drive | Saved audio files (HearBeat/Songs/) | Until user deletes |
-| Cohesivity Postgres | User account, library metadata, haptic presets | Until account deletion |
-| Backend memory | In-flight analysis data | Per-request only |
-
-## Quick Start
+- Python 3.11 or newer
+- Node.js and npm
+- FFmpeg available on `PATH`
+- A machine with enough memory for PyTorch and Demucs; GPU acceleration is optional
 
 ### Backend
 
@@ -78,11 +70,21 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 
-# Start API server
+# Download/cache the Demucs model once when needed.
+python setup_models.py
+
 uvicorn hearbeat.main:app --reload --port 8000
 ```
 
 ### Frontend
+
+In `frontend/.env.local`, set:
+
+```env
+NEXT_PUBLIC_API_URL=http://localhost:8000
+```
+
+Then run:
 
 ```bash
 cd frontend
@@ -90,84 +92,37 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3000` and upload an audio file.
+Open `http://localhost:3000` and upload an MP3, WAV, FLAC, OGG, AAC, M4A, MP4, WMA, or WebM file.
 
-## Deployment
+### Optional Integrations
 
-### Frontend (Vercel)
+Google sign-in, Drive storage, and the persistent library need server-side configuration. Set the Cohesivity variables, `GOOGLE_DRIVE_CLIENT_ID`, `GOOGLE_DRIVE_CLIENT_SECRET`, `DRIVE_TOKEN_ENCRYPTION_KEY`, and `FRONTEND_URL` in the backend environment. Set `NEXT_PUBLIC_GOOGLE_DRIVE_CLIENT_ID` in the frontend environment when using Drive OAuth. Keep secrets out of `NEXT_PUBLIC_*` variables.
 
-1. Push to GitHub
-2. Import at [vercel.com/new](https://vercel.com/new)
-3. Set `NEXT_PUBLIC_API_URL` to your backend URL
-4. Set `NEXT_PUBLIC_GOOGLE_DRIVE_CLIENT_ID` for Google Drive integration
-5. Deploy
-
-See [frontend/README.md](frontend/README.md) for details.
-
-### Backend (GCP)
+## Tests And Checks
 
 ```bash
 cd backend
-gcloud builds submit --tag gcr.io/$PROJECT_ID/hearbeat-api
+source .venv/bin/activate
+pytest tests/ -v
 
-gcloud run deploy hearbeat-api \
-  --image gcr.io/$PROJECT_ID/hearbeat-api \
-  --region us-central1 \
-  --allow-unauthenticated \
-  --memory 4Gi \
-  --cpu 2
+cd ../frontend
+npm run lint
+npm run build
 ```
 
-See [GCP_DEPLOY.md](GCP_DEPLOY.md) for full guide including secrets, GPU, and custom domains.
+## Deployment
 
-## Authentication
+The intended deployment is Next.js on Vercel and the FastAPI service on Google Cloud Run. The backend container needs FFmpeg, the Demucs model, adequate memory, and configured environment variables. See [GCP_DEPLOY.md](GCP_DEPLOY.md) for the deployment commands and resource settings. Review the process-local job-store limitation before using multiple Cloud Run workers or instances.
 
-- Google Sign-In is optional. Core analysis works without an account.
-- Authenticated users get a persistent library (saved songs, haptic presets).
-- Session cookies are httpOnly, secure, and SameSite=Lax.
+## Repository Guide
 
-## Google Drive Integration (Optional)
+- [Runtime architecture](docs/RUNTIME.md)
+- [Backend API and development notes](backend/README.md)
+- [Frontend development and Vercel notes](frontend/README.md)
+- [Deployment guide](GCP_DEPLOY.md)
+- [Privacy policy](frontend/app/privacy/page.tsx)
+- [Terms of service](frontend/app/terms/page.tsx)
 
-- Connects via Google OAuth with the narrow `drive.file` scope.
-- Creates a `HearBeat/Songs/` folder in the user's Drive.
-- Saved audio files are stored in the user's Drive, not on HearBeat servers.
-- Drive access and refresh tokens are encrypted at rest (AES-256-GCM).
-- Users can disconnect Drive at any time without losing Drive files.
-- Removing a song from HearBeat does not delete it from Drive.
+## Origin
 
-## Privacy and Data
-
-- No analytics, advertising, or tracking services.
-- Audio files are processed in memory and not stored permanently on the server.
-- Anonymous sessions use browser-only local caching.
-- See [Privacy Policy](https://defusic.vercel.app/privacy) and [Terms of Service](https://defusic.vercel.app/terms).
-
-## Security
-
-- All OAuth tokens handled server-side (never exposed to browser).
-- Google Drive tokens encrypted at rest with AES-256-GCM.
-- No secrets in `NEXT_PUBLIC_*` variables or frontend bundles.
-- Cohesivity credentials remain server-side only.
-
-## Documentation
-
-- [Privacy Policy](https://defusic.vercel.app/privacy)
-- [Terms of Service](https://defusic.vercel.app/terms)
-- [GCP Deployment Guide](GCP_DEPLOY.md) - Backend deployment to Google Cloud
-- [Runtime Architecture](docs/RUNTIME.md) - Complete system documentation
-- [Backend README](backend/README.md) - Backend details
-- [Frontend README](frontend/README.md) - Frontend details
-
-## Testing
-
-```bash
-# Backend tests
-cd backend && pytest tests/ -v
-
-# Frontend lint + build
-cd frontend && npm run lint && npm run build
-```
-
-<!-- BEGIN:cohesivity -->
-If you are another agent who just picked up this project, you can get the status of its backend using the status endpoint, read more at https://cohesivity.ai/backend-for-ai-agents
-<!-- END:cohesivity -->
+HearBeat began as a promise to a friend with congenital hearing loss who loved music and drums but could not reliably access low frequencies through hearing devices. The project explores a small, practical starting point: using a phone's vibration motor alongside visual and audio analysis to make rhythmic information easier to feel.
