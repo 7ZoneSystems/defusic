@@ -10,6 +10,7 @@ import RotaryKnob from '@/components/RotaryKnob';
 import MusicAudioPlayer from '@/components/MusicAudioPlayer';
 import HapticSettingsDialog from '@/components/HapticSettingsDialog';
 import ThemeSwitcher from '@/components/ThemeSwitcher';
+import { Info } from 'lucide-react';
 
 interface MusicExperienceProps {
   jobId: string;
@@ -60,11 +61,17 @@ export default function MusicExperience({
 }: MusicExperienceProps) {
   const [volume, setVolume] = useState(0.7);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [showHapticNotice, setShowHapticNotice] = useState(false);
   const { resolved } = useTheme();
 
+  const handleHapticConfigChange = useCallback((config: HapticConfig) => {
+    onHapticConfigChange(config);
+    setShowHapticNotice(true);
+  }, [onHapticConfigChange]);
+
   const handleMasterChange = useCallback((value: number) => {
-    onHapticConfigChange({ ...hapticConfig, master_intensity: value });
-  }, [hapticConfig, onHapticConfigChange]);
+    handleHapticConfigChange({ ...hapticConfig, master_intensity: value });
+  }, [hapticConfig, handleHapticConfigChange]);
 
   return (
     <div
@@ -177,6 +184,23 @@ export default function MusicExperience({
             queueLength={queueLength}
             onEnded={onEnded}
           />
+
+          {showHapticNotice && (
+            <div
+              role="status"
+              className="fixed bottom-5 left-1/2 z-[45] flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-2 px-3 py-2 text-xs shadow-lg"
+              style={{
+                color: 'var(--text-primary)',
+                background: 'var(--bg-overlay)',
+                border: '1px solid var(--border-strong)',
+                borderRadius: '2px',
+                fontFamily: 'var(--font-geist-mono)',
+              }}
+            >
+              <Info size={14} className="shrink-0" style={{ color: 'var(--accent)' }} />
+              <span>Haptic settings changed. Play and pause the song once to apply them.</span>
+            </div>
+          )}
         </div>
 
         {/* Right visualizer — Response */}
@@ -198,7 +222,7 @@ export default function MusicExperience({
         realHardware={realHardware}
         lastEvent={lastEvent}
         config={hapticConfig}
-        onConfigChange={onHapticConfigChange}
+        onConfigChange={handleHapticConfigChange}
       />
 
       {/* Queue Drawer / Sheet */}
