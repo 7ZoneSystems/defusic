@@ -113,6 +113,15 @@ Open `http://localhost:3000` and upload an MP3, WAV, FLAC, OGG, AAC, M4A, MP4, W
 
 Google sign-in, Drive storage, and the persistent library need server-side configuration. Set the Cohesivity variables, `GOOGLE_DRIVE_CLIENT_ID`, `GOOGLE_DRIVE_CLIENT_SECRET`, `DRIVE_TOKEN_ENCRYPTION_KEY`, and `FRONTEND_URL` in the backend environment. Set `NEXT_PUBLIC_GOOGLE_DRIVE_CLIENT_ID` in the frontend environment when using Drive OAuth. Keep secrets out of `NEXT_PUBLIC_*` variables.
 
+## Test Audio
+
+A sample track is included for quickly trying out the upload and analysis flow: [Cartoon, Daniel Levi, Jéja - On & On (feat. Daniel Levi) \[NCS Release\].mp3](./test-audio/Cartoon,%20Daniel%20Levi,%20J%C3%A9ja%20-%20On%20%26%20On%20(feat.%20Daniel%20Levi)%20%5BNCS%20Release%5D.mp3)
+
+> Song: Cartoon, Jéja - On & On (feat. Daniel Levi) [NCS Release]
+> Music provided by NoCopyrightSounds
+> Free Download/Stream: [http://ncs.io/onandon](http://ncs.io/onandon)
+> Watch: http://youtu.be/K4DyBUG242c
+
 ## Tests And Checks
 
 ```bash
